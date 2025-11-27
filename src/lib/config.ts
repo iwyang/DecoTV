@@ -99,7 +99,10 @@ export function refineConfig(adminConfig: AdminConfig): AdminConfig {
   const apiSitesFromFileKey = new Set(apiSitesFromFile.map(([key]) => key));
   currentApiSites.forEach((source) => {
     if (!apiSitesFromFileKey.has(source.key)) {
-      source.from = 'custom';
+      // 如果不是来自配置文件，且不是来自 tvbox 订阅，则标记为 custom
+      if (source.from !== 'tvbox') {
+        source.from = 'custom';
+      }
     }
   });
 

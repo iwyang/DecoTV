@@ -35,9 +35,15 @@ export interface AdminConfig {
     name: string;
     api: string;
     detail?: string;
-    from: 'config' | 'custom';
+    from: 'config' | 'custom' | 'tvbox';
     disabled?: boolean;
     is_adult?: boolean; // 标记是否为成人资源
+  }[];
+  TVBoxConfig?: {
+    url: string;
+    name: string;
+    autoUpdate: boolean;
+    addedAt: number;
   }[];
   CustomCategories: {
     name?: string;

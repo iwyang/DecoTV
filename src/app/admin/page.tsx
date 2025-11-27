@@ -308,7 +308,7 @@ interface DataSource {
   detail?: string;
   disabled?: boolean;
   is_adult?: boolean; // 标记是否为成人资源
-  from: 'config' | 'custom';
+  from: 'config' | 'custom' | 'tvbox';
 }
 
 // 直播源数据类型
@@ -2502,6 +2502,269 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         timer={alertModal.timer}
         showConfirm={alertModal.showConfirm}
       />
+    </div>
+  );
+};
+
+// TVBox 订阅源配置组件
+const TVBoxSubscriptionPanel = ({
+  config,
+  refreshConfig,
+}: {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}) => {
+  const { alertModal, showAlert, hideAlert } = useAlertModal();
+  const { isLoading, withLoading } = useLoadingState();
+  const [newSub, setNewSub] = useState({
+    name: '',
+    url: '',
+    autoUpdate: true,
+  });
+
+  const handleAddSubscription = async () => {
+    if (!newSub.name || !newSub.url) {
+      showAlert({
+        type: 'warning',
+        title: '请输入完整信息',
+        message: '名称和订阅地址不能为空',
+      });
+      return;
+    }
+
+    try {
+      await withLoading('addTVBoxSub', async () => {
+        const res = await fetch('/api/admin/tvbox', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(newSub),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '添加失败');
+
+        showAlert({
+          type: 'success',
+          title: '添加成功',
+          message: data.message,
+          timer: 2000,
+        });
+        setNewSub({ name: '', url: '', autoUpdate: true });
+        await refreshConfig();
+      });
+    } catch (err) {
+      showAlert({
+        type: 'error',
+        title: '添加失败',
+        message: err instanceof Error ? err.message : '未知错误',
+      });
+    }
+  };
+
+  const handleDeleteSubscription = async (name: string) => {
+    try {
+      await withLoading(`deleteTVBoxSub_${name}`, async () => {
+        const res = await fetch(
+          `/api/admin/tvbox?name=${encodeURIComponent(name)}`,
+          {
+            method: 'DELETE',
+          }
+        );
+        if (!res.ok) throw new Error('删除失败');
+
+        await refreshConfig();
+      });
+    } catch (err) {
+      showAlert({
+        type: 'error',
+        title: '删除失败',
+        message: '无法删除订阅源',
+      });
+    }
+  };
+
+  const handleRefreshSubscription = async (name: string) => {
+    try {
+      await withLoading(`refreshTVBoxSub_${name}`, async () => {
+        const res = await fetch('/api/admin/tvbox', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || '刷新失败');
+
+        showAlert({
+          type: 'success',
+          title: '刷新成功',
+          message: data.message,
+          timer: 2000,
+        });
+        await refreshConfig();
+      });
+    } catch (err) {
+      showAlert({
+        type: 'error',
+        title: '刷新失败',
+        message: err instanceof Error ? err.message : '未知错误',
+      });
+    }
+  };
+
+  return (
+    <div className='space-y-6 p-4'>
+      <AlertModal
+        isOpen={alertModal.isOpen}
+        onClose={hideAlert}
+        type={alertModal.type}
+        title={alertModal.title}
+        message={alertModal.message}
+        timer={alertModal.timer}
+      />
+
+      {/* 添加订阅表单 */}
+      <div className='bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm'>
+        <div className='flex items-center gap-3 mb-6'>
+          <div className='p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg'>
+            <Database className='w-5 h-5 text-blue-600 dark:text-blue-400' />
+          </div>
+          <div>
+            <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
+              添加新订阅
+            </h3>
+            <p className='text-xs text-gray-500 dark:text-gray-400 mt-0.5'>
+              支持标准 TVBox 接口配置 (JSON)，自动提取 CMS 站点
+            </p>
+          </div>
+        </div>
+
+        <div className='grid grid-cols-1 md:grid-cols-12 gap-4 items-end'>
+          <div className='md:col-span-3'>
+            <label className='block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+              订阅名称
+            </label>
+            <input
+              type='text'
+              value={newSub.name}
+              onChange={(e) => setNewSub({ ...newSub, name: e.target.value })}
+              placeholder='例如: 饭太硬'
+              className='w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900/50 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all'
+            />
+          </div>
+          <div className='md:col-span-7'>
+            <label className='block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5'>
+              订阅地址 (URL)
+            </label>
+            <input
+              type='text'
+              value={newSub.url}
+              onChange={(e) => setNewSub({ ...newSub, url: e.target.value })}
+              placeholder='http://example.com/config.json'
+              className='w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-900/50 text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all'
+            />
+          </div>
+          <div className='md:col-span-2'>
+            <button
+              onClick={handleAddSubscription}
+              disabled={isLoading('addTVBoxSub')}
+              className={`w-full h-[42px] ${buttonStyles.primary} flex justify-center items-center gap-2 shadow-sm hover:shadow-md transition-all`}
+            >
+              {isLoading('addTVBoxSub') ? (
+                '添加中...'
+              ) : (
+                <>
+                  <Upload size={16} />
+                  添加
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 订阅列表 */}
+      <div className='border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-sm bg-white dark:bg-gray-800'>
+        <table className='min-w-full divide-y divide-gray-200 dark:divide-gray-700'>
+          <thead className='bg-gray-50 dark:bg-gray-900/50'>
+            <tr>
+              <th className='px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                名称
+              </th>
+              <th className='px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                地址
+              </th>
+              <th className='px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                添加时间
+              </th>
+              <th className='px-6 py-4 text-right text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
+                操作
+              </th>
+            </tr>
+          </thead>
+          <tbody className='divide-y divide-gray-200 dark:divide-gray-700'>
+            {config?.TVBoxConfig?.map((sub) => (
+              <tr
+                key={sub.name}
+                className='hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors'
+              >
+                <td className='px-6 py-4 whitespace-nowrap'>
+                  <div className='flex items-center'>
+                    <div className='h-8 w-8 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400 font-bold text-xs mr-3'>
+                      {sub.name.charAt(0)}
+                    </div>
+                    <span className='text-sm font-medium text-gray-900 dark:text-gray-100'>
+                      {sub.name}
+                    </span>
+                  </div>
+                </td>
+                <td className='px-6 py-4'>
+                  <div
+                    className='text-sm text-gray-500 dark:text-gray-400 max-w-xs truncate font-mono bg-gray-100 dark:bg-gray-900 px-2 py-1 rounded'
+                    title={sub.url}
+                  >
+                    {sub.url}
+                  </div>
+                </td>
+                <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400'>
+                  {new Date(sub.addedAt || Date.now()).toLocaleDateString()}
+                </td>
+                <td className='px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-3'>
+                  <button
+                    onClick={() => handleRefreshSubscription(sub.name)}
+                    disabled={isLoading(`refreshTVBoxSub_${sub.name}`)}
+                    className='inline-flex items-center text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300 transition-colors'
+                  >
+                    <span className='mr-1'>↻</span>
+                    {isLoading(`refreshTVBoxSub_${sub.name}`)
+                      ? '刷新中...'
+                      : '刷新'}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteSubscription(sub.name)}
+                    disabled={isLoading(`deleteTVBoxSub_${sub.name}`)}
+                    className='inline-flex items-center text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 transition-colors'
+                  >
+                    <span className='mr-1'>✕</span>
+                    删除
+                  </button>
+                </td>
+              </tr>
+            ))}
+            {(!config?.TVBoxConfig || config.TVBoxConfig.length === 0) && (
+              <tr>
+                <td
+                  colSpan={4}
+                  className='px-6 py-12 text-center text-gray-500 dark:text-gray-400'
+                >
+                  <div className='flex flex-col items-center justify-center'>
+                    <Database className='w-12 h-12 text-gray-300 dark:text-gray-600 mb-3' />
+                    <p>暂无订阅源，请在上方添加</p>
+                  </div>
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };
@@ -5942,6 +6205,7 @@ function AdminPageClient() {
   const [showResetConfigModal, setShowResetConfigModal] = useState(false);
   const [expandedTabs, setExpandedTabs] = useState<{ [key: string]: boolean }>({
     userConfig: false,
+    tvboxSubscription: false,
     videoSource: false,
     liveSource: false,
     tvboxConfig: false,
@@ -6277,6 +6541,24 @@ function AdminPageClient() {
               <UserConfig
                 config={config}
                 role={role}
+                refreshConfig={fetchConfig}
+              />
+            </CollapsibleTab>
+
+            {/* TVBox 订阅源配置 */}
+            <CollapsibleTab
+              title='TVBox 订阅源'
+              icon={
+                <Database
+                  size={20}
+                  className='text-gray-600 dark:text-gray-400'
+                />
+              }
+              isExpanded={expandedTabs.tvboxSubscription}
+              onToggle={() => toggleTab('tvboxSubscription')}
+            >
+              <TVBoxSubscriptionPanel
+                config={config}
                 refreshConfig={fetchConfig}
               />
             </CollapsibleTab>
