@@ -141,7 +141,7 @@ export async function GET(req: NextRequest) {
       'filter:',
       filterParam,
       'proxy:',
-      useSmartProxy
+      useSmartProxy,
     );
 
     const cfg = await getConfig();
@@ -169,7 +169,7 @@ export async function GET(req: NextRequest) {
       jarInfo = await Promise.race([
         getSpiderJar(forceSpiderRefresh),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Spider JAR timeout')), 3000)
+          setTimeout(() => reject(new Error('Spider JAR timeout')), 3000),
         ),
       ]);
     } catch (err) {
@@ -240,17 +240,29 @@ export async function GET(req: NextRequest) {
     // 🔒 根据过滤设置筛选视频源
     let sourcesToUse = (cfg.SourceConfig || []).filter((s) => !s.disabled);
 
+    // 🚨 成人内容过滤：仅依据显式标记 is_adult === true
+    // 注意：不再使用关键词推断，避免误伤正常源
     if (shouldFilterAdult) {
-      // 过滤掉成人资源源
-      sourcesToUse = sourcesToUse.filter((s) => !s.is_adult);
+      const beforeCount = sourcesToUse.length;
+
+      // 仅检查显式标记 is_adult === true，不做任何模糊推测
+      sourcesToUse = sourcesToUse.filter((s) => {
+        if (s.is_adult === true) {
+          console.log(
+            `[TVBox] 🚨 Filtered by is_adult flag: ${s.key} (${s.name})`,
+          );
+          return false;
+        }
+        return true;
+      });
+
+      const filteredCount = beforeCount - sourcesToUse.length;
       console.log(
-        `[TVBox] Adult filter enabled, filtered ${
-          cfg.SourceConfig.length - sourcesToUse.length
-        } adult sources`
+        `[TVBox] ✅ Adult filter (explicit only): ${filteredCount} sources removed, ${sourcesToUse.length} remaining`,
       );
     } else {
       console.log(
-        `[TVBox] Adult filter disabled, returning all ${sourcesToUse.length} sources`
+        `[TVBox] ⚠️ Adult filter disabled, returning all ${sourcesToUse.length} sources`,
       );
     }
 
@@ -280,7 +292,7 @@ export async function GET(req: NextRequest) {
         // 替换为智能搜索代理端点
         // TVBox会在URL后拼接搜索关键词，格式：api + wd={keyword}
         site.api = `${baseUrl}/api/tvbox/search?source=${encodeURIComponent(
-          s.key
+          s.key,
         )}&filter=${shouldFilterAdult ? 'on' : 'off'}&wd=`;
 
         console.log(`[TVBox] Enabled smart proxy for source: ${s.key}`);
@@ -388,20 +400,38 @@ export async function GET(req: NextRequest) {
       return site;
     });
 
-    // 构建直播配置
-    const lives = (cfg.LiveConfig || [])
-      .filter((l) => !l.disabled)
-      .map((l) => ({
-        name: l.name,
-        type: 0, // 0-m3u格式
-        url: l.url,
-        ua:
-          l.ua ||
-          'Mozilla/5.0 (Linux; Android 11; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.72 Mobile Safari/537.36',
-        epg: l.epg || '',
-        logo: '',
-        group: '直播',
-      }));
+    // 构建直播配置（同样应用成人内容过滤，仅依据显式标记）
+    let livesToUse = (cfg.LiveConfig || []).filter((l) => !l.disabled);
+
+    if (shouldFilterAdult) {
+      const beforeLiveCount = livesToUse.length;
+      livesToUse = livesToUse.filter((l) => {
+        // 仅检查显式标记 is_adult === true
+        if ((l as any).is_adult === true) {
+          console.log(`[TVBox] 🚨 Filtered live by is_adult: ${l.name}`);
+          return false;
+        }
+        return true;
+      });
+      const filteredLiveCount = beforeLiveCount - livesToUse.length;
+      if (filteredLiveCount > 0) {
+        console.log(
+          `[TVBox] ✅ Filtered ${filteredLiveCount} adult live sources`,
+        );
+      }
+    }
+
+    const lives = livesToUse.map((l) => ({
+      name: l.name,
+      type: 0, // 0-m3u格式
+      url: l.url,
+      ua:
+        l.ua ||
+        'Mozilla/5.0 (Linux; Android 11; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.72 Mobile Safari/537.36',
+      epg: l.epg || '',
+      logo: '',
+      group: '直播',
+    }));
 
     // 构建配置对象（支持多种模式优化）
     let tvboxConfig: any;
@@ -742,7 +772,7 @@ export async function GET(req: NextRequest) {
       'https://gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar';
     // 保留候选列表以便前端展示（可选）
     (tvboxConfig as any).spider_candidates = REMOTE_SPIDER_CANDIDATES.map(
-      (c) => c.url
+      (c) => c.url,
     );
 
     // 配置验证和清理
@@ -776,7 +806,7 @@ export async function GET(req: NextRequest) {
           }
           return value;
         },
-        0
+        0,
       ); // 紧凑格式，不使用缩进
 
       // TVBox体检要求content-type为text/plain
@@ -786,7 +816,11 @@ export async function GET(req: NextRequest) {
     return new NextResponse(responseContent, {
       headers: {
         'content-type': contentType,
-        'cache-control': 'no-store, no-cache, must-revalidate',
+        // 🚨 严格禁止缓存，确保 OrionTV 等客户端每次获取最新配置
+        'cache-control':
+          'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+        pragma: 'no-cache',
+        expires: '0',
         'access-control-allow-origin': '*',
         'access-control-allow-methods': 'GET, OPTIONS',
         'access-control-allow-headers': 'Content-Type',
@@ -799,7 +833,7 @@ export async function GET(req: NextRequest) {
         error: 'TVBox 配置生成失败',
         details: e instanceof Error ? e.message : 'Unknown error',
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
