@@ -100,7 +100,7 @@ export default function TopNavbar() {
                 <Clover className='h-4 w-4' />
                 <span>综艺</span>
               </Link>
-              <Link
+              </* Link
                 href='/live'
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme chip-live ${
                   isActive('/live') ? 'ring-2 ring-purple-400/60' : ''
@@ -108,7 +108,7 @@ export default function TopNavbar() {
               >
                 <Radio className='h-4 w-4' />
                 <span>直播</span>
-              </Link>
+              </Link */>
             </div>
 
             {/* Right: Theme + User */}
