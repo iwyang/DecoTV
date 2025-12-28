@@ -26,4 +26,5 @@ export const yellowWords = [
   '电影解说',
   '伦理',
   '日本伦理',
+  '罪恶',
 ];
