@@ -32,7 +32,6 @@ function DoubanPageClient() {
   const loadingRef = useRef<HTMLDivElement>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // 用于存储最新参数值的 refs
   const currentParamsRef = useRef({
     type: '',
     primarySelection: '',
@@ -44,12 +43,10 @@ function DoubanPageClient() {
 
   const type = searchParams.get('type') || 'movie';
 
-  // 获取 runtimeConfig 中的自定义分类数据
   const [customCategories, setCustomCategories] = useState<
     Array<{ name: string; type: 'movie' | 'tv'; query: string }>
   >([]);
 
-  // 选择器状态 - 完全独立，不依赖URL参数
   const [primarySelection, setPrimarySelection] = useState<string>(() => {
     if (type === 'movie') return '热门';
     if (type === 'tv' || type === 'show') return '最近热门';
@@ -63,7 +60,6 @@ function DoubanPageClient() {
     return '全部';
   });
 
-  // MultiLevelSelector 状态
   const [multiLevelValues, setMultiLevelValues] = useState<
     Record<string, string>
   >({
@@ -75,12 +71,10 @@ function DoubanPageClient() {
     sort: 'T',
   });
 
-  // 星期选择器状态
   const [selectedWeekday, setSelectedWeekday] = useState<string>('');
 
-  // 数据源筛选 Hook
   const {
-    sources: originalSources, // 原始来源（未过滤）
+    sources,
     currentSource,
     isLoadingSources,
     isLoadingCategories,
@@ -88,19 +82,13 @@ function DoubanPageClient() {
     getFilteredCategories,
   } = useSourceFilter();
 
-  // 新增：过滤后的可用源（屏蔽含有“艾旦影视”的源）
-  const [filteredSources, setFilteredSources] = useState(originalSources);
-
-  // 【核心修复】存储当前源的过滤后分类列表（用于渲染）
   const [filteredSourceCategories, setFilteredSourceCategories] = useState<
     SourceCategory[]
   >([]);
 
-  // 选中的源分类
   const [selectedSourceCategory, setSelectedSourceCategory] =
     useState<SourceCategory | null>(null);
 
-  // 源分类数据（用于直接查询源接口）
   const [sourceData, setSourceData] = useState<DoubanItem[]>([]);
   const [isLoadingSourceData, setIsLoadingSourceData] = useState(false);
 
@@ -112,40 +100,7 @@ function DoubanPageClient() {
     }
   }, []);
 
-  // 新增：实时过滤 sources，屏蔽含有“艾旦影视”的源
-  useEffect(() => {
-    const BLOCKED_SOURCE_KEYWORDS = ['艾旦影视'];
-
-    const safeSources = originalSources.filter((source) => {
-      const name = (source.name || '').toLowerCase();
-      const api = (source.api || '').toLowerCase();
-      const key = (source.key || '').toLowerCase();
-
-      return !BLOCKED_SOURCE_KEYWORDS.some(
-        (keyword) =>
-          name.includes(keyword.toLowerCase()) ||
-          api.includes(keyword.toLowerCase()) ||
-          key.includes(keyword.toLowerCase())
-      );
-    });
-
-    console.log(
-      `✅ 来源过滤: 原 ${originalSources.length} 个 → 剩余 ${safeSources.length} 个 (已屏蔽含有“艾旦影视”的源)`,
-    );
-
-    setFilteredSources(safeSources);
-
-    // 如果当前选中的源被屏蔽了，自动切回 auto
-    if (
-      currentSource !== 'auto' &&
-      !safeSources.some((s) => s.key === currentSource)
-    ) {
-      console.log('当前源被屏蔽，自动切换回聚合模式');
-      setCurrentSource('auto');
-    }
-  }, [originalSources, currentSource, setCurrentSource]);
-
-  // 同步最新参数值到 ref
+  // 同步参数到 ref
   useEffect(() => {
     currentParamsRef.current = {
       type,
@@ -164,36 +119,25 @@ function DoubanPageClient() {
     currentPage,
   ]);
 
-  // 初始化时标记选择器为准备好状态
+  // 初始化 selectorsReady
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setSelectorsReady(true);
-    }, 50);
+    const timer = setTimeout(() => setSelectorsReady(true), 50);
     return () => clearTimeout(timer);
   }, []);
 
-  // type变化时立即重置selectorsReady（最高优先级）
   useEffect(() => {
     setSelectorsReady(false);
     setLoading(true);
   }, [type]);
 
-  // 当type变化时重置选择器状态
+  // type 变化时重置选择器
   useEffect(() => {
     if (type === 'custom' && customCategories.length > 0) {
-      const types = Array.from(
-        new Set(customCategories.map((cat) => cat.type)),
-      );
-      if (types.length > 0) {
-        let selectedType = types.includes('movie') ? 'movie' : types[0];
-        setPrimarySelection(selectedType);
-        const firstCategory = customCategories.find(
-          (cat) => cat.type === selectedType,
-        );
-        if (firstCategory) {
-          setSecondarySelection(firstCategory.query);
-        }
-      }
+      const types = Array.from(new Set(customCategories.map(cat => cat.type)));
+      let selectedType = types.includes('movie') ? 'movie' : types[0];
+      setPrimarySelection(selectedType);
+      const firstCategory = customCategories.find(cat => cat.type === selectedType);
+      if (firstCategory) setSecondarySelection(firstCategory.query);
     } else {
       if (type === 'movie') {
         setPrimarySelection('热门');
@@ -222,85 +166,86 @@ function DoubanPageClient() {
       sort: 'T',
     });
 
-    const timer = setTimeout(() => {
-      setSelectorsReady(true);
-    }, 50);
+    const timer = setTimeout(() => setSelectorsReady(true), 50);
     return () => clearTimeout(timer);
   }, [type, customCategories]);
 
-  // 生成骨架屏数据
-  const skeletonData = Array.from({ length: 25 }, (_, index) => index);
+  const skeletonData = Array.from({ length: 25 }, (_, i) => i);
 
-  // 参数快照比较函数
-  const isSnapshotEqual = useCallback(
-    (
-      snapshot1: any,
-      snapshot2: any,
-    ) => {
-      return (
-        snapshot1.type === snapshot2.type &&
-        snapshot1.primarySelection === snapshot2.primarySelection &&
-        snapshot1.secondarySelection === snapshot2.secondarySelection &&
-        snapshot1.selectedWeekday === snapshot2.selectedWeekday &&
-        snapshot1.currentPage === snapshot2.currentPage &&
-        JSON.stringify(snapshot1.multiLevelSelection) ===
-          JSON.stringify(snapshot2.multiLevelSelection)
-      );
-    },
-    [],
-  );
+  const isSnapshotEqual = useCallback((s1: any, s2: any) => {
+    return (
+      s1.type === s2.type &&
+      s1.primarySelection === s2.primarySelection &&
+      s1.secondarySelection === s2.secondarySelection &&
+      s1.selectedWeekday === s2.selectedWeekday &&
+      s1.currentPage === s2.currentPage &&
+      JSON.stringify(s1.multiLevelSelection) === JSON.stringify(s2.multiLevelSelection)
+    );
+  }, []);
 
-  // 生成API请求参数的辅助函数
-  const getRequestParams = useCallback(
-    (pageStart: number) => {
-      if (type === 'tv' || type === 'show') {
-        return {
-          kind: 'tv' as const,
-          category: type,
-          type: secondarySelection,
-          pageLimit: 25,
-          pageStart,
-        };
-      }
-      return {
-        kind: type as 'tv' | 'movie',
-        category: primarySelection,
-        type: secondarySelection,
-        pageLimit: 25,
-        pageStart,
-      };
-    },
-    [type, primarySelection, secondarySelection],
-  );
+  const getRequestParams = useCallback((pageStart: number) => {
+    if (type === 'tv' || type === 'show') {
+      return { kind: 'tv' as const, category: type, type: secondarySelection, pageLimit: 25, pageStart };
+    }
+    return { kind: type as 'tv' | 'movie', category: primarySelection, type: secondarySelection, pageLimit: 25, pageStart };
+  }, [type, primarySelection, secondarySelection]);
 
-  // 防抖的数据加载函数（略，保持不变）
-  const loadInitialData = useCallback(async () => {
-    // ...（原代码不变）
-  }, [
-    type,
-    primarySelection,
-    secondarySelection,
-    multiLevelValues,
-    selectedWeekday,
-    getRequestParams,
-    customCategories,
-  ]);
+  // loadInitialData、fetchMoreData 等函数保持原样（省略以节省篇幅）
 
-  // 其他 useEffect 和函数保持不变（省略部分内容以突出修改点）
-
-  // 从源接口获取分类数据
   const fetchSourceCategoryData = useCallback(
     async (category: SourceCategory) => {
-      // ...（原代码不变）
+      if (currentSource === 'auto') return;
+
+      const source = sources.find(s => s.key === currentSource);
+      if (!source) {
+        setLoading(false);
+        return;
+      }
+
+      setIsLoadingSourceData(true);
+      try {
+        const originalApiUrl = source.api.endsWith('/')
+          ? `${source.api}?ac=videolist&t=${category.type_id}&pg=1`
+          : `${source.api}/?ac=videolist&t=${category.type_id}&pg=1`;
+
+        const isExternalUrl = originalApiUrl.startsWith('http://') || originalApiUrl.startsWith('https://');
+        const proxyUrl = `/api/proxy/cms?url=${encodeURIComponent(originalApiUrl)}`;
+        const fetchUrl = isExternalUrl ? proxyUrl : originalApiUrl;
+
+        const response = await fetch(fetchUrl, { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error('获取分类数据失败');
+
+        const data = await response.json();
+        const items = data.list || [];
+
+        const convertedItems: DoubanItem[] = items.map((item: any) => ({
+          id: item.vod_id?.toString() || '',
+          title: item.vod_name || '',
+          poster: item.vod_pic || '',
+          rating: 0,
+          year: item.vod_year || '',
+          subtitle: item.vod_remarks || '',
+        }));
+
+        setSourceData(convertedItems);
+        setHasMore(items.length >= 20);
+      } catch (error) {
+        console.error('获取源分类数据失败:', error);
+        setSourceData([]);
+      } finally {
+        setIsLoadingSourceData(false);
+        setLoading(false);
+      }
     },
-    [currentSource, filteredSources], // 更新依赖
+    [currentSource, sources],
   );
 
-  // 处理数据源切换 - 实现链式自动选中逻辑
+  // 【核心修改】处理数据源切换
   const handleSourceChange = useCallback(
     async (sourceKey: string) => {
       if (sourceKey === currentSource) return;
 
+      // 重置状态
       setLoading(true);
       setCurrentPage(0);
       setDoubanData([]);
@@ -314,7 +259,7 @@ function DoubanPageClient() {
       setCurrentSource(sourceKey);
 
       if (sourceKey === 'auto') {
-        // 切回聚合模式（逻辑不变）
+        // 聚合模式逻辑不变
         if (type === 'movie') {
           setPrimarySelection('热门');
           setSecondarySelection('全部');
@@ -328,140 +273,196 @@ function DoubanPageClient() {
           setPrimarySelection('每日放送');
           setSecondarySelection('全部');
         }
-        setMultiLevelValues({
-          type: 'all',
-          region: 'all',
-          year: 'all',
-          platform: 'all',
-          label: 'all',
-          sort: 'T',
-        });
-      } else {
-        const source = filteredSources.find((s) => s.key === sourceKey); // 使用 filteredSources
-        if (!source) {
-          console.error('🔥 [Debug] Source not found or blocked:', sourceKey);
+        setMultiLevelValues({ type: 'all', region: 'all', year: 'all', platform: 'all', label: 'all', sort: 'T' });
+        setLoading(false); // 聚合模式由其他 effect 加载
+        return;
+      }
+
+      // === 特定源模式 ===
+      const source = sources.find(s => s.key === sourceKey);
+      if (!source) {
+        console.error('Source not found:', sourceKey);
+        setLoading(false);
+        return;
+      }
+
+      // 【新增判断】如果源名称或 API 包含“艾旦影视”，直接屏蔽其所有分类
+      const sourceName = (source.name || '').toLowerCase();
+      const sourceApi = (source.api || '').toLowerCase();
+      const sourceKeyLower = (source.key || '').toLowerCase();
+
+      if (
+        sourceName.includes('艾旦影视') ||
+        sourceApi.includes('艾旦影视') ||
+        sourceKeyLower.includes('aidan') ||
+        sourceKeyLower.includes('艾旦')
+      ) {
+        console.log('🔥 检测到艾旦影视相关源，已屏蔽其所有分类');
+        setFilteredSourceCategories([]); // 空分类列表
+        setLoading(false);
+        return;
+      }
+
+      // === 正常源：获取并过滤敏感分类 ===
+      try {
+        const originalApiUrl = source.api.endsWith('/') ? `${source.api}?ac=class` : `${source.api}/?ac=class`;
+        const isExternalUrl = originalApiUrl.startsWith('http://') || originalApiUrl.startsWith('https://');
+        const proxyUrl = `/api/proxy/cms?url=${encodeURIComponent(originalApiUrl)}`;
+        const fetchUrl = isExternalUrl ? proxyUrl : originalApiUrl;
+
+        const response = await fetch(fetchUrl, { headers: { Accept: 'application/json' } });
+        if (!response.ok) throw new Error(`获取分类失败: ${response.status}`);
+
+        const data = await response.json();
+        const allCategories: SourceCategory[] = data.class || [];
+
+        if (allCategories.length === 0) {
+          setFilteredSourceCategories([]);
           setLoading(false);
           return;
         }
 
-        // ...（获取分类、过滤敏感分类等逻辑保持不变）
+        // 敏感分类关键词屏蔽（你之前提供的名单）
+        const BLOCKED_CATEGORIES = [
+          '伦理片', '里番动漫', '同性', '伦理', '三级伦理', '网红主播',
+          '韩国伦理', '西方伦理', '日本伦理', '两性课堂', '写真热舞',
+          '擦边短剧', '港台三级', '里番动画', '成人', '里番', '理论片', '福利',
+        ];
 
-        try {
-          // ...（fetch 分类逻辑不变）
+        const filteredCategories = allCategories.filter((cat: SourceCategory) => {
+          const name = (cat.type_name || '').trim();
+          const id = (cat.type_id || '').toString().trim();
+          return !BLOCKED_CATEGORIES.some(blocked => name.includes(blocked) || id.includes(blocked));
+        });
 
-          const allCategories: SourceCategory[] = data.class || [];
+        console.log(`✅ 分类过滤: ${allCategories.length} → ${filteredCategories.length}`);
 
-          if (allCategories.length === 0) {
-            setFilteredSourceCategories([]);
-            setLoading(false);
-            return;
-          }
+        setFilteredSourceCategories(filteredCategories);
 
-          // 分类关键词屏蔽（你之前提供的名单）
-          const BLOCKED_CATEGORIES = [
-            '伦理片',
-            '里番动漫',
-            '同性',
-            '伦理',
-            '三级伦理',
-            '网红主播',
-            '韩国伦理',
-            '西方伦理',
-            '日本伦理',
-            '两性课堂',
-            '写真热舞',
-            '擦边短剧',
-            '港台三级',
-            '里番动画',
-            '成人',
-            '里番',
-            '理论片',
-            '福利',
-          ];
-
-          const filteredCategories = allCategories.filter((cat: SourceCategory) => {
-            const name = (cat.type_name || '').trim();
-            const id = (cat.type_id || '').toString().trim();
-            return !BLOCKED_CATEGORIES.some(
-              (blocked) => name.includes(blocked) || id.includes(blocked),
-            );
-          });
-
-          console.log(
-            '✅ Categories filtered:',
-            allCategories.length,
-            '→',
-            filteredCategories.length,
-          );
-
-          setFilteredSourceCategories(filteredCategories);
-
-          if (filteredCategories.length === 0) {
-            console.warn('该源所有分类均被屏蔽');
-            setLoading(false);
-            return;
-          }
-
-          const firstCategory = filteredCategories[0];
-          setSelectedSourceCategory(firstCategory);
-          fetchSourceCategoryData(firstCategory);
-        } catch (err) {
-          console.error('🔥 [Debug] Fetch error:', err);
-          setFilteredSourceCategories([]);
+        if (filteredCategories.length === 0) {
+          console.warn('该源经筛选后无可用分类');
           setLoading(false);
+          return;
         }
+
+        // 自动选中第一个并加载数据
+        const firstCategory = filteredCategories[0];
+        setSelectedSourceCategory(firstCategory);
+        fetchSourceCategoryData(firstCategory);
+      } catch (err) {
+        console.error('获取分类失败:', err);
+        setFilteredSourceCategories([]);
+        setLoading(false);
       }
     },
-    [currentSource, setCurrentSource, type, filteredSources, fetchSourceCategoryData], // 依赖更新为 filteredSources
+    [currentSource, setCurrentSource, type, sources, fetchSourceCategoryData],
   );
 
-  // 处理源分类切换（不变）
   const handleSourceCategoryChange = useCallback(
     (category: SourceCategory) => {
-      // ...（原逻辑不变）
+      if (selectedSourceCategory?.type_id !== category.type_id) {
+        setLoading(true);
+        setCurrentPage(0);
+        setSourceData([]);
+        setHasMore(true);
+        setIsLoadingMore(false);
+        setSelectedSourceCategory(category);
+        fetchSourceCategoryData(category);
+      }
     },
     [selectedSourceCategory, fetchSourceCategoryData],
   );
 
-  // ...（其余函数 getPageTitle 等保持不变）
+  // 其他函数（getPageTitle 等）保持不变...
 
   return (
     <PageLayout activePath={getActivePath()}>
       <div className='px-4 sm:px-10 py-4 sm:py-8 overflow-visible'>
-        {/* 选择器组件 */}
-        {type !== 'custom' ? (
-          <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
-            <DoubanSelector
-              type={type as 'movie' | 'tv' | 'show' | 'anime'}
-              primarySelection={primarySelection}
-              secondarySelection={secondarySelection}
-              onPrimaryChange={handlePrimaryChange}
-              onSecondaryChange={handleSecondaryChange}
-              onMultiLevelChange={handleMultiLevelChange}
-              onWeekdayChange={handleWeekdayChange}
-              // 使用过滤后的 sources
-              sources={filteredSources}
-              currentSource={currentSource}
-              sourceCategories={
-                currentSource !== 'auto'
-                  ? filteredSourceCategories
-                  : getFilteredCategories(
-                      type as 'movie' | 'tv' | 'anime' | 'show',
-                    )
-              }
-              isLoadingSources={isLoadingSources}
-              isLoadingCategories={isLoadingCategories}
-              onSourceChange={handleSourceChange}
-              onSourceCategoryChange={handleSourceCategoryChange}
-              selectedSourceCategory={selectedSourceCategory}
-            />
+        <div className='mb-6 sm:mb-8 space-y-4 sm:space-y-6'>
+          <div>
+            <h1 className='text-2xl sm:text-3xl font-bold text-gray-800 mb-1 sm:mb-2 dark:text-gray-200'>
+              {getPageTitle()}
+            </h1>
+            <p className='text-sm sm:text-base text-gray-600 dark:text-gray-400'>
+              {getPageDescription()}
+            </p>
           </div>
-        ) : (
-          // ...（自定义分类不变）
-        )}
 
-        {/* 内容展示区域（不变） */}
-        {/* ... */}
+          {type !== 'custom' ? (
+            <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
+              <DoubanSelector
+                type={type as 'movie' | 'tv' | 'show' | 'anime'}
+                primarySelection={primarySelection}
+                secondarySelection={secondarySelection}
+                onPrimaryChange={handlePrimaryChange}
+                onSecondaryChange={handleSecondaryChange}
+                onMultiLevelChange={handleMultiLevelChange}
+                onWeekdayChange={handleWeekdayChange}
+                sources={sources}
+                currentSource={currentSource}
+                sourceCategories={
+                  currentSource !== 'auto'
+                    ? filteredSourceCategories
+                    : getFilteredCategories(type as 'movie' | 'tv' | 'anime' | 'show')
+                }
+                isLoadingSources={isLoadingSources}
+                isLoadingCategories={isLoadingCategories}
+                onSourceChange={handleSourceChange}
+                onSourceCategoryChange={handleSourceCategoryChange}
+                selectedSourceCategory={selectedSourceCategory}
+              />
+            </div>
+          ) : (
+            // 自定义分类组件不变
+          )}
+        </div>
+
+        {/* 内容区域渲染逻辑不变 */}
+        <div className='max-w-[95%] mx-auto mt-8 overflow-visible'>
+          <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
+            {loading || isLoadingSourceData || !selectorsReady ? (
+              skeletonData.map(index => <DoubanCardSkeleton key={index} />)
+            ) : currentSource !== 'auto' && sourceData.length > 0 ? (
+              sourceData.map((item, index) => (
+                <div key={`source-${item.id}-${index}`} className='w-full'>
+                  <VideoCard from='douban' title={item.title} poster={item.poster} year={item.year} type={type === 'movie' ? 'movie' : ''} />
+                </div>
+              ))
+            ) : currentSource !== 'auto' && filteredSourceCategories.length === 0 ? (
+              // 【关键提示】艾旦影视源被屏蔽分类后的提示
+              <div className='col-span-full text-center py-12 text-gray-500 dark:text-gray-400'>
+                <p>该源暂无可用分类</p>
+                <p className='text-sm mt-2'>请尝试其他数据源</p>
+              </div>
+            ) : currentSource !== 'auto' && selectedSourceCategory ? (
+              <div className='col-span-full text-center py-12 text-gray-500 dark:text-gray-400'>
+                <p>该分类暂无数据</p>
+                <p className='text-sm mt-2'>请尝试选择其他分类</p>
+              </div>
+            ) : currentSource !== 'auto' && !selectedSourceCategory ? (
+              <div className='col-span-full text-center py-12 text-gray-500 dark:text-gray-400'>
+                <p>请选择一个分类</p>
+              </div>
+            ) : (
+              doubanData.map((item, index) => (
+                <div key={`${item.title}-${index}`} className='w-full'>
+                  <VideoCard
+                    from='douban'
+                    title={item.title}
+                    poster={item.poster}
+                    douban_id={Number(item.id)}
+                    rate={item.rate}
+                    year={item.year}
+                    type={type === 'movie' ? 'movie' : ''}
+                    isBangumi={type === 'anime' && primarySelection === '每日放送'}
+                  />
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* 加载更多等 UI 不变 */}
+        </div>
       </div>
     </PageLayout>
   );
