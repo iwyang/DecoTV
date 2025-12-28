@@ -4,11 +4,10 @@ import { resolveAdultFilter } from '@/lib/adult-filter';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApi } from '@/lib/downstream';
-import { yellowWords } from '@/lib/yellow';
+import { filterSensitiveContent } from '@/lib/filter';
 
 export const runtime = 'nodejs';
 
-// OrionTV 兼容接口
 export async function GET(request: NextRequest) {
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
@@ -23,14 +22,7 @@ export async function GET(request: NextRequest) {
     const cacheTime = await getCacheTime();
     return NextResponse.json(
       { result: null, error: '缺少必要参数: q 或 resourceId' },
-      {
-        headers: {
-          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-          'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-          'Netlify-Vary': 'query',
-        },
-      }
+      { headers: { 'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}` } }
     );
   }
 
@@ -46,94 +38,28 @@ export async function GET(request: NextRequest) {
     apiSites = apiSites.filter((site) => !site.is_adult);
   }
 
-  try {
-    // 根据 resourceId 查找对应的 API 站点
-    const targetSite = apiSites.find((site) => site.key === resourceId);
-    if (!targetSite) {
-      return NextResponse.json(
-        {
-          error: `未找到指定的视频源: ${resourceId}`,
-          result: null,
-        },
-        {
-          status: 404,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Cookie',
-            'X-Adult-Filter': shouldFilterAdult ? 'enabled' : 'disabled',
-          },
-        }
-      );
-    }
+  const targetSite = apiSites.find((site) => site.key === resourceId);
+  if (!targetSite) {
+    return NextResponse.json({ error: `未找到指定的视频源: ${resourceId}`, result: null }, { status: 404 });
+  }
 
+  try {
     const results = await searchFromApi(targetSite, query);
     let result = results.filter((r) => r.title === query);
 
-    if (shouldFilterAdult) {
-      result = result.filter((r) => {
-        const typeName = r.type_name || '';
-        if (targetSite.is_adult) {
-          return false;
-        }
-        return !yellowWords.some((word: string) => typeName.includes(word));
-      });
-    }
-    const cacheTime = await getCacheTime();
+    // 统一敏感内容过滤
+    result = filterSensitiveContent(result, shouldFilterAdult, [targetSite]);
 
     if (result.length === 0) {
-      return NextResponse.json(
-        {
-          error: '未找到结果',
-          result: null,
-        },
-        {
-          status: 404,
-          headers: {
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Cookie',
-            'X-Adult-Filter': shouldFilterAdult ? 'enabled' : 'disabled',
-          },
-        }
-      );
-    } else {
-      return NextResponse.json(
-        { results: result },
-        {
-          headers: {
-            'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
-            'CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-            'Vercel-CDN-Cache-Control': `public, s-maxage=${cacheTime}`,
-            'Netlify-Vary': 'query',
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Cookie',
-            'X-Adult-Filter': shouldFilterAdult ? 'enabled' : 'disabled',
-          },
-        }
-      );
+      return NextResponse.json({ error: '未找到结果', result: null }, { status: 404 });
     }
+
+    return NextResponse.json({ results: result });
   } catch (error) {
-    return NextResponse.json(
-      {
-        error: '搜索失败',
-        result: null,
-      },
-      {
-        status: 500,
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Access-Control-Allow-Methods': 'GET, OPTIONS',
-          'Access-Control-Allow-Headers': 'Content-Type, Cookie',
-          'X-Adult-Filter': shouldFilterAdult ? 'enabled' : 'disabled',
-        },
-      }
-    );
+    return NextResponse.json({ error: '搜索失败', result: null }, { status: 500 });
   }
 }
 
-// CORS 预检请求
 export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
