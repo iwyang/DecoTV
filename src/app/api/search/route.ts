@@ -106,22 +106,50 @@ export async function GET(request: NextRequest) {
     });
     flattenedResults = Array.from(uniqueResultsMap.values());
 
-    // 🔒 成人内容过滤逻辑
-    // shouldFilterAdult=true 表示启用过滤(过滤成人内容)
-    // shouldFilterAdult=false 表示禁用过滤(显示所有内容)
+    // 🔒 成人内容 + 违禁关键词过滤逻辑
     if (shouldFilterAdult) {
       flattenedResults = flattenedResults.filter((result) => {
-        const typeName = result.type_name || '';
+        const typeName = (result.type_name || '').toLowerCase();
+        const title = (result.title || '').toLowerCase();
         const sourceKey = result.source_key || '';
 
-        // 检查视频源是否标记为成人资源
+        // 1. 屏蔽整个标记为成人的来源站点
         const source = apiSites.find((s) => s.key === sourceKey);
         if (source && source.is_adult) {
-          return false; // 过滤掉标记为成人资源的源
+          return false;
         }
 
-        // 检查分类名称是否包含敏感关键词
-        return !yellowWords.some((word: string) => typeName.includes(word));
+        // 2. 屏蔽分类名中包含成人敏感词的结果（原有 yellowWords 逻辑）
+        if (yellowWords.some((word: string) => typeName.includes(word.toLowerCase()))) {
+          return false;
+        }
+
+        // 3. 新增：屏蔽标题或分类中包含赌博/博彩等违禁关键词的结果
+        const blockedWords = [
+          '赌博',
+          '博彩',
+          '赌场',
+          '彩票',
+          '棋牌',
+          '老虎机',
+          '百家乐',
+          '真人视讯',
+          '菠菜',
+          '六合彩',
+          '时时彩',
+          '捕鱼',
+          '斗地主',
+          '德州扑克',
+        ];
+        const hasBlockedWord = blockedWords.some(
+          (word) => title.includes(word.toLowerCase()) || typeName.includes(word.toLowerCase())
+        );
+        if (hasBlockedWord) {
+          return false;
+        }
+
+        // 所有检查通过，才保留该结果
+        return true;
       });
     }
 
