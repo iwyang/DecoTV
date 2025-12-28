@@ -107,7 +107,7 @@
 快速拉取预构建镜像：
 
 ```bash
-docker pull ghcr.io/decohererk/decotv:latest
+docker pull ghcr.io/iwyang/decotv:latest
 ```
 
 若需在外部主机自行构建后再导入至 OpenWrt，请参考指南中的 “获取或构建镜像” 与 “导出并传输” 步骤。
@@ -125,13 +125,13 @@ DecoTV 提供以下 Docker 镜像标签：
 
 ```bash
 # 方式1：使用 latest 标签（自动获取最新更新）
-docker pull ghcr.io/decohererk/decotv:latest
+docker pull ghcr.io/iwyang/decotv:latest
 
 # 方式2：使用特定版本号（生产环境推荐）
-docker pull ghcr.io/decohererk/decotv:v0.4.0
+docker pull ghcr.io/iwyang/decotv:v0.4.0
 
 # 方式3：回滚到旧版本
-docker pull ghcr.io/decohererk/decotv:v0.3.0
+docker pull ghcr.io/iwyang/decotv:v0.3.0
 ```
 
 **版本号标签优势**：
@@ -148,7 +148,7 @@ docker pull ghcr.io/decohererk/decotv:v0.3.0
 ```yml
 services:
   decotv-core:
-    image: ghcr.io/decohererk/decotv:latest # 或使用 :v0.4.0 固定版本
+    image: ghcr.io/iwyang/decotv:latest # 或使用 :v0.4.0 固定版本
     container_name: decotv-core
     restart: on-failure
     ports:
@@ -182,7 +182,7 @@ volumes:
 ```yml
 services:
   decotv-core:
-    image: ghcr.io/decohererk/decotv:latest # 或使用 :v0.4.0 固定版本
+    image: ghcr.io/iwyang/decotv:latest # 或使用 :v0.4.0 固定版本
     container_name: decotv-core
     restart: on-failure
     ports:
@@ -219,7 +219,7 @@ networks:
 ```yml
 services:
   decotv-core:
-    image: ghcr.io/decohererk/decotv:latest # 或使用 :v0.4.0 固定版本
+    image: ghcr.io/iwyang/decotv:latest # 或使用 :v0.4.0 固定版本
     container_name: decotv-core
     restart: on-failure
     ports:
