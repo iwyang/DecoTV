@@ -26,6 +26,7 @@ export const blockedWords = [
   '沙巴',
   '开元',
   '皇冠',
+  '罪恶之渊',  
   // 可继续添加更多隐晦代称
 ] as const;
 
