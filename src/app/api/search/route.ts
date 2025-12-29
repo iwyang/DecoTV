@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
       Promise.race([
         searchFromApi(site, q),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000)
+          setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000),
         ),
       ]).catch((err) => {
         console.warn(`搜索失败 ${site.name} (query: ${q}):`, err.message);
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       if (!uniqueMap.has(key)) uniqueMap.set(key, item);
     });
     flattenedResults = Array.from(uniqueMap.values());
-
+    
     // 统一敏感内容过滤（包括赌博词）
     flattenedResults = filterSensitiveContent(flattenedResults, shouldFilterAdult, apiSites);
 
@@ -114,9 +114,9 @@ export async function GET(request: NextRequest) {
           'Netlify-Vary': 'query',
           'X-Adult-Filter': shouldFilterAdult ? 'enabled' : 'disabled',
         },
-      }
+      },
     );
-  } catch (error) {
+  } catch {
     return NextResponse.json({ error: '搜索失败' }, { status: 500 });
   }
 }

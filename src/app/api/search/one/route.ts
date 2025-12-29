@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
   if (!query || !resourceId) {
     const cacheTime = await getCacheTime();
     return NextResponse.json(
-      { result: null, error: '缺少必要参数: q 或 resourceId' },
+      { result: null, error: '缺少必要参数: q 或 resourceId' }, 
       { headers: { 'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}` } }
     );
   }
@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 
   const shouldFilterAdult = resolveAdultFilter(
     searchParams,
-    config.SiteConfig.DisableYellowFilter
+    config.SiteConfig.DisableYellowFilter,
   );
 
   if (shouldFilterAdult) {
