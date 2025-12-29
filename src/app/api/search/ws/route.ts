@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
+// app/api/search/ws/route.ts  (流式搜索，已添加赌博关键词屏蔽)
 
 import { NextRequest } from 'next/server';
 
@@ -14,26 +14,19 @@ export const runtime = 'nodejs';
 export async function GET(request: NextRequest) {
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-      status: 401,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
   }
 
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
 
   if (!query) {
-    return new Response(JSON.stringify({ error: '搜索关键词不能为空' }), {
-      status: 400,
-      headers: { 'Content-Type': 'application/json' },
-    });
+    return new Response(JSON.stringify({ error: '搜索关键词不能为空' }), { status: 400 });
   }
 
   const config = await getConfig();
   const apiSites = await getAvailableApiSites(authInfo.username);
 
-  // 注意：流式接口目前不解析 adult/filter 参数，统一跟随全局配置
   const shouldFilterAdult = !config.SiteConfig.DisableYellowFilter;
 
   let normalizedQuery = query;
@@ -53,8 +46,8 @@ export async function GET(request: NextRequest) {
       const encoder = new TextEncoder();
 
       const safeEnqueue = (data: Uint8Array) => {
-        if (streamClosed) return false;
         try {
+          if (streamClosed) return false;
           controller.enqueue(data);
           return true;
         } catch {
@@ -63,13 +56,11 @@ export async function GET(request: NextRequest) {
         }
       };
 
-      // start 事件
       safeEnqueue(encoder.encode(`data: ${JSON.stringify({
         type: 'start',
         query,
         normalizedQuery,
         totalSources: apiSites.length,
-        timestamp: Date.now(),
       })}\n\n`));
 
       let completedSources = 0;
@@ -89,16 +80,14 @@ export async function GET(request: NextRequest) {
           const resultsArrays = await Promise.all(siteResultsPromises);
           let results = resultsArrays.flat();
 
-          // 去重
           const uniqueMap = new Map();
           results.forEach((r: any) => uniqueMap.set(r.id, r));
           results = Array.from(uniqueMap.values());
 
-          // 统一过滤（包括赌博词）
-          const filteredResults = filterSensitiveContent(results, shouldFilterAdult, [site]);
+          // 统一过滤（含赌博关键词）
+          let filteredResults = filterSensitiveContent(results, shouldFilterAdult, apiSites);
 
-          // 排序
-          const sortedResults = rankSearchResults(filteredResults, normalizedQuery);
+          filteredResults = rankSearchResults(filteredResults, normalizedQuery);
 
           completedSources++;
 
@@ -107,12 +96,11 @@ export async function GET(request: NextRequest) {
               type: 'source_result',
               source: site.key,
               sourceName: site.name,
-              results: sortedResults,
-              timestamp: Date.now(),
+              results: filteredResults,
             })}\n\n`));
           }
 
-          if (sortedResults.length > 0) allResults.push(...sortedResults);
+          if (filteredResults.length > 0) allResults.push(...filteredResults);
         } catch (error) {
           completedSources++;
           if (!streamClosed) {
@@ -130,7 +118,6 @@ export async function GET(request: NextRequest) {
             type: 'complete',
             totalResults: allResults.length,
             completedSources,
-            timestamp: Date.now(),
           })}\n\n`));
           controller.close();
         }
@@ -140,7 +127,6 @@ export async function GET(request: NextRequest) {
     },
     cancel() {
       streamClosed = true;
-      console.log('Client disconnected');
     },
   });
 
@@ -149,7 +135,6 @@ export async function GET(request: NextRequest) {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
     },
   });
 }

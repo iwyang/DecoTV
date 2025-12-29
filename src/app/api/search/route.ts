@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
+// app/api/search/route.ts  (主搜索接口，已添加赌博关键词屏蔽)
 
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -35,7 +35,6 @@ export async function GET(request: NextRequest) {
   const config = await getConfig();
   const apiSites = await getAvailableApiSites(authInfo.username);
 
-  // 成人过滤开关逻辑
   const adultParam = searchParams.get('adult');
   const filterParam = searchParams.get('filter');
 
@@ -51,7 +50,6 @@ export async function GET(request: NextRequest) {
     shouldFilterAdult = true;
   }
 
-  // 繁体转简体
   let normalizedQuery = query;
   try {
     if (query) normalizedQuery = await toSimplified(query);
@@ -67,7 +65,7 @@ export async function GET(request: NextRequest) {
       Promise.race([
         searchFromApi(site, q),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000),
+          setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000)
         ),
       ]).catch((err) => {
         console.warn(`搜索失败 ${site.name} (query: ${q}):`, err.message);
@@ -84,18 +82,16 @@ export async function GET(request: NextRequest) {
 
     let flattenedResults = successResults.flat();
 
-    // 去重
     const uniqueMap = new Map<string, any>();
     flattenedResults.forEach((item) => {
       const key = `${item.source}|${item.id}`;
       if (!uniqueMap.has(key)) uniqueMap.set(key, item);
     });
     flattenedResults = Array.from(uniqueMap.values());
-    
-    // 统一敏感内容过滤（包括赌博词）
+
+    // 统一过滤：成人 + 赌博违禁词
     flattenedResults = filterSensitiveContent(flattenedResults, shouldFilterAdult, apiSites);
 
-    // 智能排序
     flattenedResults = rankSearchResults(flattenedResults, normalizedQuery || query);
 
     const cacheTime = await getCacheTime();
@@ -114,7 +110,7 @@ export async function GET(request: NextRequest) {
           'Netlify-Vary': 'query',
           'X-Adult-Filter': shouldFilterAdult ? 'enabled' : 'disabled',
         },
-      },
+      }
     );
   } catch {
     return NextResponse.json({ error: '搜索失败' }, { status: 500 });

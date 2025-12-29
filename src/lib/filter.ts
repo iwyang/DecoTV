@@ -1,4 +1,4 @@
-// src/lib/filter.ts  (或 app/lib/filter.ts，根据你的项目结构)
+// lib/filter.ts  (新建文件：统一敏感内容过滤逻辑)
 
 import { yellowWords } from './yellow';
 
@@ -61,11 +61,7 @@ export const blockedWords = [
 ] as const;
 
 /**
- * 统一敏感内容过滤函数
- * @param results 需要过滤的结果数组
- * @param shouldFilter 是否启用过滤
- * @param apiSites 可用站点列表（用于查找 source 是否为成人源）
- * @returns 过滤后的结果
+ * 统一过滤函数：同时屏蔽成人内容 + 指定违禁关键词（如赌博相关）
  */
 export function filterSensitiveContent(
   results: any[],
@@ -79,18 +75,18 @@ export function filterSensitiveContent(
     const title = (result.title || '').toLowerCase();
     const sourceKey = result.source_key || result.source || '';
 
-    // 1. 屏蔽整站标记为成人的源
+    // 1. 整站成人源屏蔽
     const source = apiSites.find((s: any) => s.key === sourceKey);
     if (source?.is_adult) {
       return false;
     }
 
-    // 2. 屏蔽分类包含成人敏感词
+    // 2. 分类包含成人敏感词
     if (yellowWords.some((word: string) => typeName.includes(word.toLowerCase()))) {
       return false;
     }
 
-    // 3. 屏蔽标题或分类包含赌博违禁词
+    // 3. 标题或分类包含赌博等违禁词
     if (
       blockedWords.some(
         (word) => title.includes(word.toLowerCase()) || typeName.includes(word.toLowerCase())

@@ -1,3 +1,5 @@
+// app/api/search/one/route.ts  (单源搜索，已添加赌博关键词屏蔽)
+
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveAdultFilter } from '@/lib/adult-filter';
@@ -21,8 +23,12 @@ export async function GET(request: NextRequest) {
   if (!query || !resourceId) {
     const cacheTime = await getCacheTime();
     return NextResponse.json(
-      { result: null, error: '缺少必要参数: q 或 resourceId' }, 
-      { headers: { 'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}` } }
+      { result: null, error: '缺少必要参数: q 或 resourceId' },
+      {
+        headers: {
+          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
+        },
+      }
     );
   }
 
@@ -31,43 +37,53 @@ export async function GET(request: NextRequest) {
 
   const shouldFilterAdult = resolveAdultFilter(
     searchParams,
-    config.SiteConfig.DisableYellowFilter,
+    config.SiteConfig.DisableYellowFilter
   );
 
   if (shouldFilterAdult) {
     apiSites = apiSites.filter((site) => !site.is_adult);
   }
 
-  const targetSite = apiSites.find((site) => site.key === resourceId);
-  if (!targetSite) {
-    return NextResponse.json({ error: `未找到指定的视频源: ${resourceId}`, result: null }, { status: 404 });
-  }
-
   try {
+    const targetSite = apiSites.find((site) => site.key === resourceId);
+    if (!targetSite) {
+      return NextResponse.json(
+        { error: `未找到指定的视频源: ${resourceId}`, result: null },
+        { status: 404 }
+      );
+    }
+
     const results = await searchFromApi(targetSite, query);
     let result = results.filter((r) => r.title === query);
 
-    // 统一敏感内容过滤
-    result = filterSensitiveContent(result, shouldFilterAdult, [targetSite]);
+    // 统一过滤（含赌博关键词）
+    result = filterSensitiveContent(result, shouldFilterAdult, apiSites);
+
+    const cacheTime = await getCacheTime();
 
     if (result.length === 0) {
-      return NextResponse.json({ error: '未找到结果', result: null }, { status: 404 });
+      return NextResponse.json(
+        { error: '未找到结果', result: null },
+        { status: 404 }
+      );
     }
 
-    return NextResponse.json({ results: result });
-  } catch (error) {
-    return NextResponse.json({ error: '搜索失败', result: null }, { status: 500 });
+    return NextResponse.json(
+      { results: result },
+      {
+        headers: {
+          'Cache-Control': `public, max-age=${cacheTime}, s-maxage=${cacheTime}`,
+        },
+      }
+    );
+  } catch {
+    return NextResponse.json(
+      { error: '搜索失败', result: null },
+      { status: 500 }
+    );
   }
 }
 
 export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Cookie',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
+  return new NextResponse(null, { status: 204 });
 }

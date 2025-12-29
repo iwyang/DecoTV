@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
+// app/api/search/suggestions/route.ts  (搜索建议，已添加赌博关键词屏蔽)
 
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -48,10 +48,9 @@ async function generateSuggestions(
   config: AdminConfig,
   query: string,
   username: string
-): Promise<Array<{ text: string; type: 'exact' | 'related' | 'suggestion'; score: number }>> {
+) {
   const queryLower = query.toLowerCase();
   const apiSites = await getAvailableApiSites(username);
-
   const shouldFilterAdult = !config.SiteConfig.DisableYellowFilter;
 
   let realKeywords: string[] = [];
@@ -60,8 +59,8 @@ async function generateSuggestions(
     const firstSite = apiSites[0];
     const results = await searchFromApi(firstSite, query);
 
-    // 使用统一过滤函数
-    const filteredResults = filterSensitiveContent(results, shouldFilterAdult, [firstSite]);
+    // 统一过滤（含赌博关键词）
+    const filteredResults = filterSensitiveContent(results, shouldFilterAdult, apiSites);
 
     realKeywords = Array.from(
       new Set(
@@ -74,7 +73,7 @@ async function generateSuggestions(
     ).slice(0, 8);
   }
 
-  // 以下评分和排序逻辑保持不变...
+  // 评分与排序逻辑保持不变
   const realSuggestions = realKeywords.map((word) => {
     const wordLower = word.toLowerCase();
     const queryWords = queryLower.split(/[ -:：·、-]/);

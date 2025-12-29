@@ -1,3 +1,5 @@
+// app/api/search/resources/route.ts  (资源列表接口，无需额外修改赌博过滤)
+
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveAdultFilter } from '@/lib/adult-filter';
@@ -6,7 +8,6 @@ import { getAvailableApiSites, getConfig } from '@/lib/config';
 
 export const runtime = 'nodejs';
 
-// OrionTV 兼容接口 - 获取可用的视频源列表
 export async function GET(request: NextRequest) {
   const authInfo = getAuthInfoFromCookie(request);
   if (!authInfo || !authInfo.username) {
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Methods': 'GET, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type, Cookie',
-        'X-Adult-Filter': shouldFilterAdult ? 'enabled' : 'disabled', // 调试信息
+        'X-Adult-Filter': shouldFilterAdult ? 'enabled' : 'disabled',
       },
     });
   } catch {
@@ -40,15 +41,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// CORS 预检请求
 export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Cookie',
-      'Access-Control-Max-Age': '86400',
-    },
-  });
+  return new NextResponse(null, { status: 204 });
 }
