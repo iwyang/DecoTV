@@ -5,54 +5,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getConfig } from '@/lib/config';
 import { getSpiderJar } from '@/lib/spiderJar';
 
-// ================= 违禁分类关键词列表（集中管理，方便后续增删） =================
-const BLOCKED_CATEGORIES = [
-  '伦理片',
-  '里番动漫',
-  '同性',
-  '伦理',
-  '三级伦理',
-  '网红主播',
-  '韩国伦理',
-  '西方伦理',
-  '日本伦理',
-  '两性课堂',
-  '写真热舞',
-  '擦边短剧',
-  '港台三级',
-  '里番动画',
-  '成人',
-  '里番',
-  '理论片',
-  '福利',
-  // 补充常见变体与绕过词
-  '三级片',
-  '三级',
-  'AV',
-  'av',
-  '成人动漫',
-  'H动漫',
-  '情色',
-  '写真',
-  '热舞',
-  '主播',
-  '直播',
-  '美女直播',
-  '短剧',
-  '微短剧',
-  '成人电影',
-  '限制级',
-  '情色电影',
-  '丝袜',
-  '制服',
-  '自拍',
-  '偷拍',
-  '同志',
-  'gay',
-  'les',
-  '耽美',
-];
-
 // ================= Spider 公共可达 & 回退缓存逻辑 =================
 const REMOTE_SPIDER_CANDIDATES: { url: string; md5?: string }[] = [
   {
@@ -143,7 +95,6 @@ export async function GET(req: NextRequest) {
     const { searchParams, href } = new URL(req.url);
     const format = searchParams.get('format') || 'json';
     const mode = (searchParams.get('mode') || '').toLowerCase();
-
     const filterParam = searchParams.get('filter');
     const adultParam = searchParams.get('adult');
     const proxyParam = searchParams.get('proxy');
@@ -183,50 +134,27 @@ export async function GET(req: NextRequest) {
 
     // ================= TVBox 配置主体 =================
     const tvboxConfig: any = {
-      // 墙纸（可自行替换）
       walls: [
         'https://img.ommmu.com/pic/2024/09/1726828800.jpg',
         'https://img.ommmu.com/pic/2024/09/1726828801.jpg',
-        // ... 更多墙纸
       ],
-
-      // 播放器配置（硬解优先）
-      playerConfig: {
-        // 你的原有播放器配置
-      },
-
-      // 解析接口
-      parses: [
-        // 你的原有解析列表
-      ],
-
-      // 直播源
-      lives: [
-        // 你的原有直播配置
-      ],
-
-      // 标记过滤
+      playerConfig: {},
+      parses: [],
+      lives: [],
       flags: ['qq', 'iqiyi', 'youku', 'mgtv', 'letv', 'pptv', 'sohu'],
-
-      // 关键修改：所有站点走内置代理，实现违禁分类过滤
       sites: cfg.SourceConfig.map((s: any) => {
         const proxyApi = `/api/tvbox/proxy?source=${s.key}`;
-
         return {
           key: s.key,
           name: s.name,
           type: detectApiType(s.api),
-          api: proxyApi,                    // ← 重点：统一走代理过滤分类
+          api: proxyApi, // 使用代理过滤违禁分类
           search: 1,
           searchable: s.searchable ? 1 : 0,
           quickSearch: s.quickSearch ? 1 : 0,
           filterable: 1,
-          // ext 可保留也可注释（代理已处理分类过滤）
-          // ext: s.ext,
         };
       }),
-
-      // 播放器硬解配置（保持原样）
       player: [
         {
           group: '硬解码',
@@ -249,8 +177,6 @@ export async function GET(req: NextRequest) {
           ],
         },
       ],
-
-      // 广告域名屏蔽
       ads: [
         'mimg.0c1q0l.cn',
         'www.googletagmanager.com',
@@ -260,8 +186,6 @@ export async function GET(req: NextRequest) {
         'vip.ffzyad.com',
         'https://lf1-cdn-tos.bytegoofy.com/obj/tos-cn-i-dy/455ccf9e8ae744378118e4bd289288dd',
       ],
-
-      // DoH
       doh: [
         {
           name: '阿里DNS',
@@ -276,7 +200,7 @@ export async function GET(req: NextRequest) {
       ],
     };
 
-    // Spider 处理（支持用户覆盖）
+    // ================= Spider 处理 =================
     const overrideSpider = searchParams.get('spider');
     if (
       overrideSpider &&
@@ -288,7 +212,6 @@ export async function GET(req: NextRequest) {
       tvboxConfig.spider = globalSpiderJar;
     }
 
-    // 附加调试字段
     tvboxConfig.spider_url = jarInfo.source;
     tvboxConfig.spider_md5 = jarInfo.md5;
     tvboxConfig.spider_cached = jarInfo.cached;
@@ -296,15 +219,14 @@ export async function GET(req: NextRequest) {
     tvboxConfig.spider_tried = jarInfo.tried;
     tvboxConfig.spider_success = jarInfo.success;
 
-    (tvboxConfig as any).spider_backup =
-      'https://gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar';
+    tvboxConfig.spider_backup = 'https://gitcode.net/qq_26898231/TVBox/-/raw/main/JAR/XC.jar';
+    tvboxConfig.spider_candidates = REMOTE_SPIDER_CANDIDATES.map((c) => c.url);
 
-    (tvboxConfig as any).spider_candidates = REMOTE_SPIDER_CANDIDATES.map((c) => c.url);
-
+    // ================= 配置验证日志 =================
     console.log('TVBox配置验证:', {
       sitesCount: tvboxConfig.sites.length,
-      livesCount: tvboxConfig.lives?.length || 0,
-      parsesCount: tvboxConfig.parses?.length || 0,
+      livesCount: tvboxConfig.lives.length,
+      parsesCount: tvboxConfig.parses.length,
       spider: tvboxConfig.spider ? '已设置' : '未设置',
       spiderUrl: tvboxConfig.spider.split(';')[0],
       mode: mode || 'standard',
