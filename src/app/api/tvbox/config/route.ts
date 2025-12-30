@@ -5,27 +5,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getConfig } from '@/lib/config';
 import { getSpiderJar } from '@/lib/spiderJar';
 
-const BLOCKED_CATEGORIES = [
-  '伦理片',
-  '里番动漫',
-  '同性',
-  '伦理',
-  '三级伦理',
-  '网红主播',
-  '韩国伦理',
-  '西方伦理',
-  '日本伦理',
-  '两性课堂',
-  '写真热舞',
-  '擦边短剧',
-  '港台三级',
-  '里番动画',
-  '成人',
-  '里番',
-  '理论片',
-  '福利', // 你可以随时这样添加新分类
-];
-
 // ================= Spider 公共可达 & 回退缓存逻辑 =================
 // 目的：避免出现 “spider url is private/not public” & 404 问题
 // 策略：
@@ -302,43 +281,12 @@ export async function GET(req: NextRequest) {
         name: s.name,
         type: apiType,
         api: s.api,
-        // 保持你原有的逻辑：根据API类型优化配置
-        searchable: 1, 
-        quickSearch: 1, 
-        filterable: 1, 
-        changeable: 1, 
+        // 根据API类型优化配置
+        searchable: apiType === 3 ? 1 : 1, // CSP源通常支持搜索
+        quickSearch: apiType === 3 ? 1 : 1, // 快速搜索
+        filterable: apiType === 3 ? 1 : 1, // 筛选功能
+        changeable: 1, // 允许换源
       };
-
-      // --- 屏蔽逻辑开始 ---
-      let extObj: any = {};
-      try {
-        // 尝试解析原有的 detail 扩展配置
-        if (typeof s.detail === 'string' && s.detail.trim().startsWith('{')) {
-          extObj = JSON.parse(s.detail);
-        } else if (typeof s.detail === 'object' && s.detail !== null) {
-          extObj = { ...s.detail };
-        }
-      } catch (e) {
-        console.warn(`[Config] 解析源 ${s.name} 失败`, e);
-      }
-
-      // 如果有分类配置，剔除黑名单中的分类
-      if (extObj.categories && Array.isArray(extObj.categories)) {
-        extObj.categories = extObj.categories.filter((cat: string) => 
-          !BLOCKED_CATEGORIES.some(blocked => cat.includes(blocked))
-        );
-      }
-      
-      // 注入黑名单标记
-      extObj.blocked_groups = BLOCKED_CATEGORIES;
-      // 将处理后的对象序列化回 site.ext
-      site.ext = JSON.stringify(extObj);
-      // --- 屏蔽逻辑结束 ---
-
-      if (s.playUrl) site.playUrl = s.playUrl;
-
-      return site;
-    }); // 这里的 }); 必须紧跟在 return site 之后
 
       // 🎯 默认启用智能搜索代理（解决TVBox搜索不精确问题）
       // 只代理普通采集源（type 0, 1），CSP源保持原样
