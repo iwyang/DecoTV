@@ -5,10 +5,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getConfig } from '@/lib/config';
 import { getSpiderJar } from '@/lib/spiderJar';
 
-/**
- * 屏蔽分类配置
- * 建议采用竖列格式，方便后期维护和单独注释
- */
 const BLOCKED_CATEGORIES = [
   '伦理片',
   '里番动漫',
@@ -300,45 +296,49 @@ export async function GET(req: NextRequest) {
     }
 
     const sites = sourcesToUse.map((s) => {
-      // 保持你原有的基础 site 对象赋值
+      const apiType = detectApiType(s.api);
       const site: any = {
-        key: s.id,
+        key: s.key,
         name: s.name,
-        type: s.type,
+        type: apiType,
         api: s.api,
-        searchable: s.searchable ? 1 : 0,
-        quickSearch: s.quickSearch ? 1 : 0,
-        filterable: s.filterable ? 1 : 0,
+        // 保持你原有的逻辑：根据API类型优化配置
+        searchable: 1, 
+        quickSearch: 1, 
+        filterable: 1, 
+        changeable: 1, 
       };
 
-      // --- 【新增：分类屏蔽精准插入】 ---
+      // --- 屏蔽逻辑开始 ---
       let extObj: any = {};
       try {
-        // 1. 解析原有的 detail 字段（不论是字符串还是对象）
+        // 尝试解析原有的 detail 扩展配置
         if (typeof s.detail === 'string' && s.detail.trim().startsWith('{')) {
           extObj = JSON.parse(s.detail);
         } else if (typeof s.detail === 'object' && s.detail !== null) {
           extObj = { ...s.detail };
         }
       } catch (e) {
-        console.warn(`解析源 ${s.name} 失败`);
+        console.warn(`[Config] 解析源 ${s.name} 失败`, e);
       }
 
-      // 2. 如果该源包含分类白名单，执行过滤逻辑
+      // 如果有分类配置，剔除黑名单中的分类
       if (extObj.categories && Array.isArray(extObj.categories)) {
         extObj.categories = extObj.categories.filter((cat: string) => 
           !BLOCKED_CATEGORIES.some(blocked => cat.includes(blocked))
         );
       }
       
-      // 3. 注入屏蔽标记，并将对象转回字符串给 site.ext
+      // 注入黑名单标记
       extObj.blocked_groups = BLOCKED_CATEGORIES;
+      // 将处理后的对象序列化回 site.ext
       site.ext = JSON.stringify(extObj);
-      // --- 【屏蔽逻辑结束】 ---
+      // --- 屏蔽逻辑结束 ---
 
       if (s.playUrl) site.playUrl = s.playUrl;
+
       return site;
-    });
+    }); // 这里的 }); 必须紧跟在 return site 之后
 
       // 🎯 默认启用智能搜索代理（解决TVBox搜索不精确问题）
       // 只代理普通采集源（type 0, 1），CSP源保持原样
