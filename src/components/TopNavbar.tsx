@@ -26,7 +26,8 @@ export default function TopNavbar() {
   return (
     <header className='hidden md:block fixed top-0 left-0 right-0 z-900'>
       <div className='mx-auto max-w-7xl px-4'>
-        <div className='mt-2 rounded-2xl border border-white/10 bg-white/30 dark:bg-gray-900/40 shadow-[0_0_1px_0_rgba(255,255,255,0.5),0_0_40px_-10px_rgba(99,102,241,0.5)] backdrop-blur-xl'>
+        {/* PC 端保留 backdrop-blur 磨砂玻璃效果 */}
+        <div className='mt-2 rounded-2xl border border-white/10 bg-white/80 dark:bg-gray-900/80 md:bg-white/30 md:dark:bg-gray-900/40 shadow-[0_0_1px_0_rgba(255,255,255,0.5),0_0_40px_-10px_rgba(99,102,241,0.5)] backdrop-blur-none md:backdrop-blur-xl'>
           <nav className='flex items-center justify-between h-14 px-3'>
             {/* Left: Logo */}
             <div className='flex items-center gap-2 min-w-0'>
@@ -44,6 +45,7 @@ export default function TopNavbar() {
             <div className='flex items-center justify-center gap-2 flex-wrap'>
               <Link
                 href='/'
+                prefetch={false}
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme chip-home ${
                   isActive('/') ? 'ring-2 ring-purple-400/60' : ''
                 }`}
@@ -53,6 +55,7 @@ export default function TopNavbar() {
               </Link>
               <Link
                 href='/search'
+                prefetch={false}
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme chip-search ${
                   isActive('/search') ? 'ring-2 ring-purple-400/60' : ''
                 }`}
@@ -64,6 +67,7 @@ export default function TopNavbar() {
               {/* Categories */}
               <Link
                 href='/douban?type=movie'
+                prefetch={false}
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme chip-movie ${
                   isDoubanActive('movie') ? 'ring-2 ring-purple-400/60' : ''
                 }`}
@@ -73,6 +77,7 @@ export default function TopNavbar() {
               </Link>
               <Link
                 href='/douban?type=tv'
+                prefetch={false}
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme chip-tv ${
                   isDoubanActive('tv') ? 'ring-2 ring-purple-400/60' : ''
                 }`}
@@ -82,6 +87,7 @@ export default function TopNavbar() {
               </Link>
               <Link
                 href='/douban?type=anime'
+                prefetch={false}
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme chip-anime ${
                   isDoubanActive('anime') ? 'ring-2 ring-purple-400/60' : ''
                 }`}
@@ -91,6 +97,7 @@ export default function TopNavbar() {
               </Link>
               <Link
                 href='/douban?type=show'
+                prefetch={false}
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme chip-show ${
                   isDoubanActive('show') ? 'ring-2 ring-purple-400/60' : ''
                 }`}
@@ -100,6 +107,7 @@ export default function TopNavbar() {
               </Link>
               {/* <Link
                 href='/live'
+                prefetch={false}
                 className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-sm hover:opacity-90 transition-all glass-chip chip-glow chip-theme chip-live ${
                   isActive('/live') ? 'ring-2 ring-purple-400/60' : ''
                 }`}
