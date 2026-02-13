@@ -19,8 +19,9 @@ import { useSourceFilter } from '@/hooks/useSourceFilter';
 import DoubanCardSkeleton from '@/components/DoubanCardSkeleton';
 import DoubanCustomSelector from '@/components/DoubanCustomSelector';
 import DoubanSelector, { SourceCategory } from '@/components/DoubanSelector';
+import LiteVideoCard from '@/components/LiteVideoCard';
 import PageLayout from '@/components/PageLayout';
-import VideoCard from '@/components/VideoCard';
+import VirtualizedVideoGrid from '@/components/VirtualizedVideoGrid';
 
 import { useGlobalCache } from '@/contexts/GlobalCacheContext';
 
@@ -32,9 +33,8 @@ function DoubanPageClient() {
   const [hasMore, setHasMore] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [selectorsReady, setSelectorsReady] = useState(false);
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  const loadingRef = useRef<HTMLDivElement>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const loadMoreLockRef = useRef(false);
 
   const type = searchParams.get('type') || 'movie';
 
@@ -295,33 +295,46 @@ function DoubanPageClient() {
     // 防止状态不同步时发起错误的请求（这是导致卡顿的根本原因）
     const isStateInSync = (() => {
       if (type === 'movie') {
-        return primarySelection === '热门' || primarySelection === '全部';
+        return (
+          ['全部', '热门', '最新', '豆瓣高分', '冷门佳片'].includes(
+            primarySelection,
+          ) &&
+          ['全部', '华语', '欧美', '韩国', '日本'].includes(secondarySelection)
+        );
       }
       if (type === 'tv') {
         return (
-          (primarySelection === '最近热门' || primarySelection === '全部') &&
-          (secondarySelection === 'tv' || secondarySelection === 'all')
+          ['最近热门', '全部'].includes(primarySelection) &&
+          [
+            'tv',
+            'tv_domestic',
+            'tv_american',
+            'tv_japanese',
+            'tv_korean',
+            'tv_animation',
+            'tv_documentary',
+          ].includes(secondarySelection)
         );
       }
       if (type === 'show') {
         return (
-          (primarySelection === '最近热门' || primarySelection === '全部') &&
-          (secondarySelection === 'show' || secondarySelection === 'all')
+          ['最近热门', '全部'].includes(primarySelection) &&
+          ['show', 'show_domestic', 'show_foreign'].includes(secondarySelection)
         );
       }
       if (type === 'anime') {
-        return ['每日放送', '番剧', '剧场版', '全部'].includes(
-          primarySelection,
-        );
+        return ['每日放送', '番剧', '剧场版'].includes(primarySelection);
       }
       if (type === 'custom') {
-        return true; // 自定义分类不做检查
+        return Boolean(primarySelection && secondarySelection);
       }
       return true;
     })();
 
     if (!isStateInSync) {
       // 状态还没同步，跳过这次加载，等待下一次 useEffect 触发
+      // 兜底回收 loading，避免异常状态导致骨架屏卡死
+      setLoading(false);
       return;
     }
 
@@ -358,10 +371,12 @@ function DoubanPageClient() {
     if (cachedData && cachedData.length > 0) {
       // 缓存命中：使用 flushSync 强制同步更新 DOM，实现毫秒级渲染
       pendingCacheKeyRef.current = null; // 清除待处理标记
+      loadMoreLockRef.current = false;
       flushSync(() => {
         setDoubanData(cachedData);
         setLoading(false);
-        setHasMore(cachedData.length >= 25);
+        setHasMore(cachedData.length > 0);
+        setIsLoadingMore(false);
         setCurrentPage(0);
       });
       return;
@@ -690,6 +705,7 @@ function DoubanPageClient() {
         } catch (err) {
           console.error(err);
         } finally {
+          loadMoreLockRef.current = false;
           setIsLoadingMore(false);
         }
       };
@@ -707,34 +723,16 @@ function DoubanPageClient() {
   ]);
 
   // 设置滚动监听
-  useEffect(() => {
-    // 如果没有更多数据或正在加载，则不设置监听
+  const handleGridEndReached = useCallback(() => {
     if (!hasMore || isLoadingMore || loading) {
-      return;
-    }
-
-    // 确保 loadingRef 存在
-    if (!loadingRef.current) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
-          setCurrentPage((prev) => prev + 1);
-        }
-      },
-      { threshold: 0.1 },
-    );
-
-    observer.observe(loadingRef.current);
-    observerRef.current = observer;
-
-    return () => {
-      if (observerRef.current) {
-        observerRef.current.disconnect();
+      if (!isLoadingMore) {
+        loadMoreLockRef.current = false;
       }
-    };
+      return;
+    }
+    if (loadMoreLockRef.current) return;
+    loadMoreLockRef.current = true;
+    setCurrentPage((prev) => prev + 1);
   }, [hasMore, isLoadingMore, loading]);
 
   // 处理选择器变化
@@ -1128,7 +1126,7 @@ function DoubanPageClient() {
 
           {/* 选择器组件 */}
           {type !== 'custom' ? (
-            <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
+            <div className='bg-white/90 dark:bg-gray-900/90 rounded-2xl p-4 sm:p-6 border border-gray-200/40 dark:border-gray-700/40'>
               <DoubanSelector
                 type={type as 'movie' | 'tv' | 'show' | 'anime'}
                 primarySelection={primarySelection}
@@ -1155,7 +1153,7 @@ function DoubanPageClient() {
               />
             </div>
           ) : (
-            <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
+            <div className='bg-white/90 dark:bg-gray-900/90 rounded-2xl p-4 sm:p-6 border border-gray-200/40 dark:border-gray-700/40'>
               <DoubanCustomSelector
                 customCategories={customCategories}
                 primarySelection={primarySelection}
@@ -1170,74 +1168,68 @@ function DoubanPageClient() {
         {/* 内容展示区域 */}
         <div className='max-w-[95%] mx-auto mt-8 overflow-visible'>
           {/* 内容网格 - 使用 content-visibility 优化渲染性能 */}
-          <div
-            className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'
-            style={{
-              contentVisibility: 'auto',
-              containIntrinsicSize: '0 500px',
-            }}
-          >
-            {loading || isLoadingSourceData || !selectorsReady ? (
-              // 显示骨架屏
-              skeletonData.map((index) => <DoubanCardSkeleton key={index} />)
-            ) : currentSource !== 'auto' && sourceData.length > 0 ? (
-              // 显示源分类数据
-              sourceData.map((item, index) => (
-                <div key={`source-${item.id}-${index}`} className='w-full'>
-                  <VideoCard
-                    from='douban'
-                    title={item.title}
-                    poster={item.poster}
-                    year={item.year}
-                    type={type === 'movie' ? 'movie' : ''}
-                  />
-                </div>
-              ))
-            ) : currentSource !== 'auto' && selectedSourceCategory ? (
-              // 选择了源分类但没有数据
-              <div className='col-span-full text-center py-12 text-gray-500 dark:text-gray-400'>
-                <p>该分类暂无数据</p>
-                <p className='text-sm mt-2'>请尝试选择其他分类</p>
-              </div>
-            ) : currentSource !== 'auto' && !selectedSourceCategory ? (
-              // 选择了源但未选择分类
-              <div className='col-span-full text-center py-12 text-gray-500 dark:text-gray-400'>
-                <p>请选择一个分类</p>
-                <p className='text-sm mt-2'>从上方分类列表中选择</p>
-              </div>
-            ) : (
-              // 显示豆瓣数据
-              doubanData.map((item, index) => (
-                <div key={`${item.title}-${index}`} className='w-full'>
-                  <VideoCard
-                    from='douban'
-                    title={item.title}
-                    poster={item.poster}
-                    douban_id={Number(item.id)}
-                    rate={item.rate}
-                    year={item.year}
-                    type={type === 'movie' ? 'movie' : ''}
-                    isBangumi={
-                      type === 'anime' && primarySelection === '每日放送'
-                    }
-                  />
-                </div>
-              ))
-            )}
-          </div>
+          {loading || isLoadingSourceData || !selectorsReady ? (
+            <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
+              {skeletonData.map((index) => (
+                <DoubanCardSkeleton key={index} />
+              ))}
+            </div>
+          ) : currentSource !== 'auto' && sourceData.length > 0 ? (
+            <VirtualizedVideoGrid
+              data={sourceData}
+              virtualizationThreshold={60}
+              overscan={640}
+              className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'
+              itemKey={(item) =>
+                `source-${item.id || item.title}-${item.year || ''}`
+              }
+              renderItem={(item) => (
+                <LiteVideoCard
+                  title={item.title}
+                  poster={item.poster}
+                  year={item.year}
+                  type={type === 'movie' ? 'movie' : ''}
+                />
+              )}
+            />
+          ) : currentSource !== 'auto' && selectedSourceCategory ? (
+            <div className='text-center py-12 text-gray-500 dark:text-gray-400'>
+              <p>该分类暂无内容</p>
+              <p className='text-sm mt-2'>请尝试切换其他分类</p>
+            </div>
+          ) : currentSource !== 'auto' && !selectedSourceCategory ? (
+            <div className='text-center py-12 text-gray-500 dark:text-gray-400'>
+              <p>请选择一个分类</p>
+              <p className='text-sm mt-2'>可在上方分类列表中进行选择</p>
+            </div>
+          ) : (
+            <VirtualizedVideoGrid
+              mode='auto'
+              data={doubanData}
+              virtualizationThreshold={60}
+              overscan={640}
+              onEndReached={handleGridEndReached}
+              hasMore={hasMore}
+              isLoadingMore={isLoadingMore || loading}
+              className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'
+              itemKey={(item) =>
+                `douban-${item.id || item.title}-${item.year || ''}`
+              }
+              renderItem={(item) => (
+                <LiteVideoCard
+                  title={item.title}
+                  poster={item.poster}
+                  rate={item.rate}
+                  year={item.year}
+                  type={type === 'movie' ? 'movie' : ''}
+                />
+              )}
+            />
+          )}
 
           {/* 加载更多指示器 */}
           {hasMore && !loading && (
-            <div
-              ref={(el) => {
-                if (el && el.offsetParent !== null) {
-                  (
-                    loadingRef as React.MutableRefObject<HTMLDivElement | null>
-                  ).current = el;
-                }
-              }}
-              className='flex justify-center mt-12 py-8'
-            >
+            <div className='flex justify-center mt-12 py-8'>
               {isLoadingMore && (
                 <div className='flex items-center gap-2'>
                   <div className='animate-spin rounded-full h-6 w-6 border-b-2 border-green-500'></div>

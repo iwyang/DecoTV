@@ -7,6 +7,7 @@ import Artplayer from 'artplayer';
 import artplayerPluginDanmuku from 'artplayer-plugin-danmuku';
 import Hls from 'hls.js';
 import { Download, Heart } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
@@ -30,15 +31,29 @@ import { isIOSPlatform, useCast } from '@/hooks/useCast';
 import { type DanmuItem, useDanmu } from '@/hooks/useDanmu';
 import { useDoubanInfo } from '@/hooks/useDoubanInfo';
 
+import type {
+  DanmuManualMatchModalProps,
+  DanmuManualSelection,
+} from '@/components/DanmuManualMatchModal';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import { MovieMetaInfo } from '@/components/MovieMetaInfo';
 import { MovieRecommends } from '@/components/MovieRecommends';
 import { MovieReviews } from '@/components/MovieReviews';
 import PageLayout from '@/components/PageLayout';
-import SkipConfigPanel from '@/components/SkipConfigPanel';
+import type { SkipConfigPanelProps } from '@/components/SkipConfigPanel';
 import Toast from '@/components/Toast';
 
 import { useDownloadManager } from '@/contexts/DownloadManagerContext';
+
+const DanmuManualMatchModal = dynamic<DanmuManualMatchModalProps>(
+  () =>
+    import('../../components/DanmuManualMatchModal').then((mod) => mod.default),
+  { ssr: false },
+);
+const SkipConfigPanel = dynamic<SkipConfigPanelProps>(
+  () => import('../../components/SkipConfigPanel').then((mod) => mod.default),
+  { ssr: false },
+);
 
 // 扩展 HTMLVideoElement 类型以支持 hls 属性
 declare global {
@@ -279,6 +294,13 @@ function PlayPageClient() {
   // Wake Lock 相关
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
+  const [isDanmuManualModalOpen, setIsDanmuManualModalOpen] = useState(false);
+  const [manualDanmuOverrides, setManualDanmuOverrides] = useState<
+    Record<string, DanmuManualSelection>
+  >({});
+  const danmuScopeKey = `${videoDoubanId || videoTitle}_${videoYear || ''}_${currentEpisodeIndex + 1}`;
+  const activeManualDanmuOverride = manualDanmuOverrides[danmuScopeKey] || null;
+
   // 弹幕 Hook
   const {
     danmuList,
@@ -291,10 +313,12 @@ function PlayPageClient() {
     title: videoTitle,
     year: videoYear,
     episode: currentEpisodeIndex + 1,
+    manualOverride: activeManualDanmuOverride,
   });
   const danmuCount = danmuList.length;
   const isDanmuBusy = isDanmuReloading || danmuLoading;
   const isDanmuEmpty = !danmuLoading && danmuCount === 0;
+  const isDanmuManualOverridden = !!activeManualDanmuOverride;
   const shownEmptyDanmuHintRef = useRef('');
   const [showDanmuMeta, setShowDanmuMeta] = useState(false);
   const danmuMetaWrapRef = useRef<HTMLDivElement | null>(null);
@@ -302,10 +326,18 @@ function PlayPageClient() {
   const autoRetryDanmuScopeRef = useRef('');
   const danmuSourceLabel = matchInfo
     ? `${matchInfo.animeTitle} · ${matchInfo.episodeTitle}`
-    : '未匹配到来源';
+    : activeManualDanmuOverride
+      ? `${activeManualDanmuOverride.animeTitle || '手动匹配'} · ${
+          activeManualDanmuOverride.episodeTitle ||
+          `episodeId:${activeManualDanmuOverride.episodeId}`
+        }`
+      : '未匹配到来源';
   const danmuMatchLevelLabel = (() => {
     if (!matchInfo?.matchLevel) return null;
     const level = matchInfo.matchLevel.toLowerCase();
+    if (level.includes('manual')) {
+      return '手动覆盖';
+    }
     if (level.includes('exact') || level.includes('perfect')) {
       return '精确匹配';
     }
@@ -338,6 +370,7 @@ function PlayPageClient() {
         return '初始化';
     }
   })();
+  const danmuMatchModeText = isDanmuManualOverridden ? '手动覆盖' : '自动匹配';
 
   // 投屏 Hook
   const {
@@ -454,32 +487,84 @@ function PlayPageClient() {
     }
   };
 
-  const handleReloadDanmu = async () => {
+  const runReloadDanmu = async (options?: {
+    manualOverride?: DanmuManualSelection | null;
+    successMessage?: string | ((count: number) => string);
+    emptyMessage?: string;
+    errorMessage?: string;
+  }) => {
     if (isDanmuReloadingRef.current) return;
 
     isDanmuReloadingRef.current = true;
     setIsDanmuReloading(true);
     try {
-      const count = await reloadDanmu();
+      const count = await reloadDanmu({
+        manualOverride: options?.manualOverride,
+      });
       if (count > 0) {
-        showToast(`弹幕已刷新，共 ${count} 条`, 'success');
+        const successMessage =
+          typeof options?.successMessage === 'function'
+            ? options.successMessage(count)
+            : options?.successMessage;
+        showToast(successMessage || `弹幕已刷新，共 ${count} 条`, 'success');
       } else {
-        showToast('当前影片暂无弹幕（0 条）', 'info');
+        showToast(options?.emptyMessage || '当前影片暂无弹幕（0 条）', 'info');
       }
     } catch (err) {
       console.error('[Danmu] Reload failed:', err);
-      showToast('刷新弹幕失败', 'error');
+      showToast(options?.errorMessage || '刷新弹幕失败', 'error');
     } finally {
       isDanmuReloadingRef.current = false;
       setIsDanmuReloading(false);
     }
   };
 
+  const handleReloadDanmu = async () => {
+    await runReloadDanmu();
+  };
+
+  const handleApplyManualDanmuSelection = async (
+    selection: DanmuManualSelection,
+  ) => {
+    setManualDanmuOverrides((prev) => ({
+      ...prev,
+      [danmuScopeKey]: selection,
+    }));
+    setIsDanmuManualModalOpen(false);
+
+    await runReloadDanmu({
+      manualOverride: selection,
+      successMessage: (count) =>
+        `已手动匹配为 ${selection.animeTitle} · ${selection.episodeTitle}（${count} 条）`,
+      emptyMessage: '手动匹配完成，但该集暂无弹幕',
+      errorMessage: '手动匹配弹幕失败',
+    });
+  };
+
+  const handleClearManualDanmuOverride = async () => {
+    if (!activeManualDanmuOverride) {
+      showToast('当前未启用手动匹配', 'info');
+      return;
+    }
+
+    setManualDanmuOverrides((prev) => {
+      const next = { ...prev };
+      delete next[danmuScopeKey];
+      return next;
+    });
+
+    await runReloadDanmu({
+      manualOverride: null,
+      successMessage: '已恢复自动匹配并刷新弹幕',
+      emptyMessage: '已恢复自动匹配，本集暂无弹幕',
+      errorMessage: '恢复自动匹配失败',
+    });
+  };
+
   useEffect(() => {
-    const scopeKey = `${videoDoubanId || videoTitle}_${videoYear || ''}_${currentEpisodeIndex + 1}`;
     setShowDanmuMeta(false);
-    autoRetryDanmuScopeRef.current = `pending:${scopeKey}`;
-  }, [currentEpisodeIndex, videoDoubanId, videoTitle, videoYear]);
+    autoRetryDanmuScopeRef.current = `pending:${danmuScopeKey}`;
+  }, [danmuScopeKey]);
 
   useEffect(() => {
     if (!showDanmuMeta) return;
@@ -514,27 +599,26 @@ function PlayPageClient() {
     if (!videoDoubanId && !videoTitle) return;
     if (danmuCount > 0) return;
 
-    const scopeKey = `${videoDoubanId || videoTitle}_${videoYear || ''}_${currentEpisodeIndex + 1}`;
-    if (autoRetryDanmuScopeRef.current !== `pending:${scopeKey}`) return;
+    if (autoRetryDanmuScopeRef.current !== `pending:${danmuScopeKey}`) return;
 
-    autoRetryDanmuScopeRef.current = `running:${scopeKey}`;
+    autoRetryDanmuScopeRef.current = `running:${danmuScopeKey}`;
     const timer = setTimeout(async () => {
       if (isDanmuReloadingRef.current) {
-        autoRetryDanmuScopeRef.current = `done:${scopeKey}`;
+        autoRetryDanmuScopeRef.current = `done:${danmuScopeKey}`;
         return;
       }
       try {
         const count = await reloadDanmu();
         if (count > 0) {
           showToast(`已自动重试并加载 ${count} 条弹幕`, 'success');
-        } else if (shownEmptyDanmuHintRef.current !== scopeKey) {
-          shownEmptyDanmuHintRef.current = scopeKey;
-          showToast('本集暂未加载到弹幕，可点击右上角刷新重试', 'info');
+        } else if (shownEmptyDanmuHintRef.current !== danmuScopeKey) {
+          shownEmptyDanmuHintRef.current = danmuScopeKey;
+          showToast('本集暂未加载到弹幕，可点击右上角刷新或手动匹配', 'info');
         }
       } catch {
         // ignore auto retry errors
       } finally {
-        autoRetryDanmuScopeRef.current = `done:${scopeKey}`;
+        autoRetryDanmuScopeRef.current = `done:${danmuScopeKey}`;
       }
     }, 900);
 
@@ -543,10 +627,8 @@ function PlayPageClient() {
     currentEpisodeIndex,
     danmuCount,
     danmuLoading,
+    danmuScopeKey,
     reloadDanmu,
-    videoDoubanId,
-    videoTitle,
-    videoYear,
   ]);
 
   // -----------------------------------------------------------------------------
@@ -1621,11 +1703,26 @@ function PlayPageClient() {
       detail?.episodes_titles?.[currentEpisodeIndex] ||
       `第${currentEpisodeIndex + 1}集`;
 
+    let normalizedSourceUrl = videoUrl;
+    let referer: string | undefined;
+    let origin: string | undefined;
+    try {
+      const parsedUrl = new URL(videoUrl, window.location.href);
+      normalizedSourceUrl = parsedUrl.toString();
+      referer = parsedUrl.toString();
+      origin = parsedUrl.origin;
+    } catch {
+      // 使用原始地址继续下载
+    }
+
     try {
       await enqueueDownload({
         title: `${videoTitle || detail?.title || '视频'} ${episodeLabel}`,
-        sourceUrl: videoUrl,
+        sourceUrl: normalizedSourceUrl,
         channel,
+        referer,
+        origin,
+        ua: typeof navigator !== 'undefined' ? navigator.userAgent : undefined,
       });
       showToast('已加入下载队列', 'success');
     } catch (error) {
@@ -2414,7 +2511,7 @@ function PlayPageClient() {
               onClick={() =>
                 setIsEpisodeSelectorCollapsed(!isEpisodeSelectorCollapsed)
               }
-              className='group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/80 hover:bg-white dark:bg-gray-800/80 dark:hover:bg-gray-800 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md transition-all duration-200'
+              className='group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/90 hover:bg-white dark:bg-gray-800/90 dark:hover:bg-gray-800 border border-gray-200/60 dark:border-gray-700/60 shadow-sm hover:shadow-md transition-all duration-200'
               title={
                 isEpisodeSelectorCollapsed ? '显示选集面板' : '隐藏选集面板'
               }
@@ -2472,7 +2569,7 @@ function PlayPageClient() {
                   ref={danmuMetaWrapRef}
                   className='absolute top-3 right-3 z-40 flex items-end gap-2'
                 >
-                  <div className='flex max-w-[80vw] items-center gap-2 rounded-full border border-white/20 bg-black/55 px-3 py-1.5 text-white backdrop-blur-md shadow-lg md:max-w-90'>
+                  <div className='flex max-w-[80vw] items-center gap-2 rounded-full border border-white/20 bg-black/75 px-3 py-1.5 text-white shadow-lg md:max-w-90'>
                     <div className='min-w-0'>
                       <button
                         ref={danmuMetaToggleRef}
@@ -2494,19 +2591,20 @@ function PlayPageClient() {
                           ? '弹幕加载中...'
                           : `弹幕 ${danmuCount} 条`}
                       </button>
-                      {!danmuLoading && matchInfo && (
-                        <p
-                          className='mt-0.5 truncate text-[11px] text-white/70'
-                          title={`匹配：${danmuSourceLabel}`}
-                        >
-                          匹配：{danmuSourceLabel}
-                          {danmuMatchLevelLabel && (
-                            <span className='ml-1 rounded bg-white/15 px-1.5 py-0.5 text-[10px] text-white/85'>
-                              {danmuMatchLevelLabel}
-                            </span>
-                          )}
-                        </p>
-                      )}
+                      {!danmuLoading &&
+                        (matchInfo || activeManualDanmuOverride) && (
+                          <p
+                            className='mt-0.5 truncate text-[11px] text-white/70'
+                            title={`匹配：${danmuSourceLabel}`}
+                          >
+                            匹配：{danmuSourceLabel}
+                            {danmuMatchLevelLabel && (
+                              <span className='ml-1 rounded bg-white/15 px-1.5 py-0.5 text-[10px] text-white/85'>
+                                {danmuMatchLevelLabel}
+                              </span>
+                            )}
+                          </p>
+                        )}
                     </div>
                     <button
                       type='button'
@@ -2561,10 +2659,44 @@ function PlayPageClient() {
                         </svg>
                       )}
                     </button>
+                    <button
+                      type='button'
+                      onClick={() => setIsDanmuManualModalOpen(true)}
+                      className='inline-flex items-center gap-1 rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/90 transition-colors hover:bg-white/20'
+                      title='手动匹配弹幕'
+                      aria-label='手动匹配弹幕'
+                    >
+                      <svg
+                        className='h-3.5 w-3.5'
+                        viewBox='0 0 24 24'
+                        fill='none'
+                        xmlns='http://www.w3.org/2000/svg'
+                      >
+                        <path
+                          d='M10.5 18.5A8 8 0 1 1 16 16l4.5 4.5'
+                          stroke='currentColor'
+                          strokeWidth='2'
+                          strokeLinecap='round'
+                          strokeLinejoin='round'
+                        />
+                      </svg>
+                      手动
+                    </button>
+                    {isDanmuManualOverridden && (
+                      <button
+                        type='button'
+                        onClick={handleClearManualDanmuOverride}
+                        className='inline-flex items-center gap-1 rounded-full bg-amber-400/20 px-2.5 py-1 text-[11px] font-medium text-amber-100 transition-colors hover:bg-amber-400/30'
+                        title='恢复自动匹配'
+                        aria-label='恢复自动匹配'
+                      >
+                        恢复自动
+                      </button>
+                    )}
                   </div>
 
                   {showDanmuMeta && (
-                    <div className='w-[min(80vw,320px)] rounded-xl border border-white/20 bg-black/75 p-3 text-white shadow-lg backdrop-blur-md'>
+                    <div className='w-[min(80vw,320px)] rounded-xl border border-white/20 bg-black/85 p-3 text-white shadow-lg'>
                       <div className='mb-2 flex items-center justify-between gap-2'>
                         <p className='text-xs font-medium text-white/90'>
                           弹幕加载详情
@@ -2596,6 +2728,12 @@ function PlayPageClient() {
                           </span>
                         </p>
                         <p className='flex items-center justify-between gap-3'>
+                          <span className='text-white/55'>匹配模式</span>
+                          <span className='text-white/90'>
+                            {danmuMatchModeText}
+                          </span>
+                        </p>
+                        <p className='flex items-center justify-between gap-3'>
                           <span className='text-white/55'>匹配级别</span>
                           <span className='text-white/90'>
                             {danmuMatchLevelLabel || '未标注'}
@@ -2620,7 +2758,7 @@ function PlayPageClient() {
 
                 {/* 换源加载提示 - 使用播放器自带的加载动画 */}
                 {isVideoLoading && (
-                  <div className='absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-xl'>
+                  <div className='absolute inset-0 z-50 flex items-center justify-center bg-black/70 rounded-xl'>
                     <div className='flex flex-col items-center gap-3'>
                       <div className='w-10 h-10 border-4 border-green-500 border-t-transparent rounded-full animate-spin' />
                       <span className='text-white/80 text-sm'>
@@ -2793,17 +2931,29 @@ function PlayPageClient() {
           title={videoTitle}
           year={videoYear}
         />
+
+        {isDanmuManualModalOpen && (
+          <DanmuManualMatchModal
+            isOpen={isDanmuManualModalOpen}
+            defaultKeyword={videoTitle}
+            currentEpisode={currentEpisodeIndex + 1}
+            onClose={() => setIsDanmuManualModalOpen(false)}
+            onApply={handleApplyManualDanmuSelection}
+          />
+        )}
       </div>
 
       {/* 跳过片头片尾设置面板 */}
-      <SkipConfigPanel
-        isOpen={isSkipConfigPanelOpen}
-        onClose={() => setIsSkipConfigPanelOpen(false)}
-        config={skipConfig}
-        onChange={handleSkipConfigChange}
-        videoDuration={artPlayerRef.current?.duration || 0}
-        currentTime={artPlayerRef.current?.currentTime || 0}
-      />
+      {isSkipConfigPanelOpen && (
+        <SkipConfigPanel
+          isOpen={isSkipConfigPanelOpen}
+          onClose={() => setIsSkipConfigPanelOpen(false)}
+          config={skipConfig}
+          onChange={handleSkipConfigChange}
+          videoDuration={artPlayerRef.current?.duration || 0}
+          currentTime={artPlayerRef.current?.currentTime || 0}
+        />
+      )}
 
       {/* Toast 通知 */}
       {toast.show && (

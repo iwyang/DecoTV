@@ -1,98 +1,15 @@
 'use client';
 
 import { CheckCircle2, Loader2, Search, Sparkles } from 'lucide-react';
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
 
-import { type SourceCategory, useSourceFilter } from '@/hooks/useSourceFilter';
+import useBrowseVideos from '@/hooks/useBrowseVideos';
+import { useSourceFilter } from '@/hooks/useSourceFilter';
 
 import SourceBrowserIcon from '@/components/icons/SourceBrowserIcon';
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
-
-interface SourceVideoItem {
-  vod_id?: string | number;
-  vod_name?: string;
-  vod_pic?: string;
-  vod_year?: string;
-  vod_remarks?: string;
-}
-
-interface SourceVideoListResponse {
-  list?: SourceVideoItem[];
-  class?: SourceCategory[];
-  page?: number | string;
-  pagecount?: number | string;
-  total?: number | string;
-  limit?: number | string;
-  page_size?: number | string;
-  msg?: string;
-}
-
-function buildCategoryApiUrl(
-  api: string,
-  categoryId: string,
-  page: number,
-): string {
-  if (api.endsWith('/')) {
-    return `${api}?ac=videolist&t=${encodeURIComponent(categoryId)}&pg=${page}`;
-  }
-  return `${api}/?ac=videolist&t=${encodeURIComponent(categoryId)}&pg=${page}`;
-}
-
-function parsePositiveInteger(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return Math.floor(value);
-  }
-  if (typeof value === 'string') {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
-  }
-  return null;
-}
-
-function inferHasMore(
-  payload: SourceVideoListResponse,
-  requestedPage: number,
-  fetchedCount: number,
-): boolean {
-  const pageCount = parsePositiveInteger(payload.pagecount);
-  if (pageCount !== null) {
-    return requestedPage < pageCount;
-  }
-
-  const total = parsePositiveInteger(payload.total);
-  const pageSize =
-    parsePositiveInteger(payload.limit) ??
-    parsePositiveInteger(payload.page_size) ??
-    20;
-
-  if (total !== null) {
-    return requestedPage * pageSize < total;
-  }
-
-  return fetchedCount >= pageSize;
-}
-
-function mergeUniqueItems(
-  previous: SourceVideoItem[],
-  incoming: SourceVideoItem[],
-): SourceVideoItem[] {
-  const map = new Map<string, SourceVideoItem>();
-  [...previous, ...incoming].forEach((item, index) => {
-    const key = String(item.vod_id || item.vod_name || index);
-    map.set(key, item);
-  });
-  return Array.from(map.values());
-}
+import VirtualizedVideoGrid from '@/components/VirtualizedVideoGrid';
 
 function SourceBrowserPageClient() {
   const {
@@ -106,15 +23,6 @@ function SourceBrowserPageClient() {
   } = useSourceFilter();
   const [keyword, setKeyword] = useState('');
   const [selectedCategoryId, setSelectedCategoryId] = useState('');
-  const [categoryItems, setCategoryItems] = useState<SourceVideoItem[]>([]);
-  const [isLoadingCategoryItems, setIsLoadingCategoryItems] = useState(false);
-  const [isLoadingMoreCategoryItems, setIsLoadingMoreCategoryItems] =
-    useState(false);
-  const [categoryPage, setCategoryPage] = useState(1);
-  const [hasMoreCategoryItems, setHasMoreCategoryItems] = useState(false);
-  const [categoryError, setCategoryError] = useState('');
-  const loadMoreAnchorRef = useRef<HTMLDivElement | null>(null);
-  const loadMoreObserverRef = useRef<IntersectionObserver | null>(null);
 
   const normalizedKeyword = keyword.trim().toLowerCase();
   const filteredSources = useMemo(() => {
@@ -146,74 +54,26 @@ function SourceBrowserPageClient() {
     );
   }, [selectedCategoryId, sourceCategories]);
 
-  const fetchCategoryItems = useCallback(
-    async (categoryId: string, page = 1) => {
-      if (currentSource === 'auto' || !currentSourceConfig) {
-        setCategoryItems([]);
-        setCategoryPage(1);
-        setHasMoreCategoryItems(false);
-        setCategoryError('');
-        return;
-      }
+  const shouldBrowseCategory =
+    currentSource !== 'auto' &&
+    Boolean(currentSourceConfig?.api) &&
+    selectedCategory !== null;
 
-      const isLoadMore = page > 1;
-      if (isLoadMore) {
-        setIsLoadingMoreCategoryItems(true);
-      } else {
-        setIsLoadingCategoryItems(true);
-      }
-      setCategoryError('');
-
-      try {
-        const originalApiUrl = buildCategoryApiUrl(
-          currentSourceConfig.api,
-          categoryId,
-          page,
-        );
-        const proxyUrl = `/api/proxy/cms?url=${encodeURIComponent(originalApiUrl)}`;
-        const response = await fetch(proxyUrl, {
-          cache: 'no-store',
-          headers: {
-            Accept: 'application/json',
-          },
-        });
-
-        if (!response.ok) {
-          throw new Error(`分类内容拉取失败 (${response.status})`);
-        }
-
-        const payload = (await response.json()) as SourceVideoListResponse;
-        const nextItems = Array.isArray(payload.list) ? payload.list : [];
-        setCategoryPage(page);
-        setHasMoreCategoryItems(inferHasMore(payload, page, nextItems.length));
-        setCategoryItems((previous) =>
-          isLoadMore ? mergeUniqueItems(previous, nextItems) : nextItems,
-        );
-      } catch (err) {
-        if (!isLoadMore) {
-          setCategoryItems([]);
-          setHasMoreCategoryItems(false);
-        }
-        setCategoryError(
-          err instanceof Error ? err.message : '分类内容拉取失败，请稍后重试',
-        );
-      } finally {
-        if (isLoadMore) {
-          setIsLoadingMoreCategoryItems(false);
-        } else {
-          setIsLoadingCategoryItems(false);
-        }
-      }
-    },
-    [currentSource, currentSourceConfig],
-  );
+  const {
+    videos: categoryItems,
+    hasMore: hasMoreCategoryItems,
+    isLoading: isLoadingCategoryItems,
+    isLoadingMore: isLoadingMoreCategoryItems,
+    error: categoryError,
+    loadMore: handleLoadMore,
+  } = useBrowseVideos({
+    sourceKey: currentSource,
+    sourceApi: currentSourceConfig?.api ?? null,
+    categoryId: selectedCategoryId,
+    enabled: shouldBrowseCategory,
+  });
 
   useEffect(() => {
-    setCategoryItems([]);
-    setCategoryPage(1);
-    setHasMoreCategoryItems(false);
-    setIsLoadingMoreCategoryItems(false);
-    setCategoryError('');
     if (currentSource === 'auto') {
       setSelectedCategoryId('');
     }
@@ -233,63 +93,11 @@ function SourceBrowserPageClient() {
     }
   }, [currentSource, selectedCategoryId, sourceCategories]);
 
-  useEffect(() => {
-    if (!selectedCategoryId) return;
-    void fetchCategoryItems(selectedCategoryId, 1);
-  }, [selectedCategoryId, fetchCategoryItems]);
-
-  const handleLoadMore = useCallback(() => {
-    if (!selectedCategoryId) return;
-    if (currentSource === 'auto') return;
-    if (isLoadingCategoryItems || isLoadingMoreCategoryItems) return;
-    if (!hasMoreCategoryItems) return;
-    void fetchCategoryItems(selectedCategoryId, categoryPage + 1);
-  }, [
-    selectedCategoryId,
-    currentSource,
-    isLoadingCategoryItems,
-    isLoadingMoreCategoryItems,
-    hasMoreCategoryItems,
-    fetchCategoryItems,
-    categoryPage,
-  ]);
-
-  useEffect(() => {
-    if (!selectedCategoryId || !hasMoreCategoryItems) return;
-    if (isLoadingCategoryItems || isLoadingMoreCategoryItems) return;
-    if (!loadMoreAnchorRef.current) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          handleLoadMore();
-        }
-      },
-      { threshold: 0.15 },
-    );
-
-    observer.observe(loadMoreAnchorRef.current);
-    loadMoreObserverRef.current = observer;
-
-    return () => {
-      if (loadMoreObserverRef.current) {
-        loadMoreObserverRef.current.disconnect();
-        loadMoreObserverRef.current = null;
-      }
-    };
-  }, [
-    selectedCategoryId,
-    hasMoreCategoryItems,
-    isLoadingCategoryItems,
-    isLoadingMoreCategoryItems,
-    handleLoadMore,
-  ]);
-
   return (
     <PageLayout activePath='/source-browser'>
       <div className='px-4 sm:px-10 py-4 sm:py-8'>
         <div className='mx-auto w-full max-w-6xl space-y-6'>
-          <section className='rounded-3xl border border-emerald-400/20 bg-linear-to-r from-slate-900/80 via-slate-900/65 to-emerald-950/45 p-5 shadow-[0_15px_50px_-25px_rgba(16,185,129,0.65)] backdrop-blur-xl sm:p-7'>
+          <section className='rounded-3xl border border-emerald-400/20 bg-linear-to-r from-slate-900/92 via-slate-900/86 to-emerald-950/70 p-5 shadow-[0_10px_32px_-24px_rgba(16,185,129,0.55)] sm:p-7'>
             <div className='flex flex-wrap items-start justify-between gap-4'>
               <div className='flex items-center gap-3'>
                 <div className='inline-flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-300/40'>
@@ -331,7 +139,7 @@ function SourceBrowserPageClient() {
             </div>
           </section>
 
-          <section className='rounded-2xl border border-white/10 bg-slate-900/55 p-4 shadow-[0_12px_38px_-28px_rgba(14,165,233,0.7)] backdrop-blur-xl sm:p-5'>
+          <section className='rounded-2xl border border-white/10 bg-slate-900/88 p-4 shadow-[0_8px_28px_-24px_rgba(14,165,233,0.55)] sm:p-5'>
             <div className='mb-3 flex items-center justify-between'>
               <h2 className='text-sm font-semibold text-slate-200'>
                 选择资源站
@@ -374,7 +182,7 @@ function SourceBrowserPageClient() {
             </div>
           </section>
 
-          <section className='rounded-2xl border border-white/10 bg-slate-900/55 p-4 backdrop-blur-xl sm:p-5'>
+          <section className='rounded-2xl border border-white/10 bg-slate-900/88 p-4 sm:p-5'>
             <div className='flex flex-wrap items-center justify-between gap-3'>
               <div>
                 <h3 className='text-sm font-semibold text-slate-200'>
@@ -454,30 +262,38 @@ function SourceBrowserPageClient() {
                   </div>
                 ) : (
                   <div className='mt-4'>
-                    <div className='grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
-                      {categoryItems.map((item, index) => (
-                        <div
-                          key={`${String(item.vod_id || item.vod_name || index)}-${index}`}
-                          className='w-full'
-                        >
-                          <VideoCard
-                            id={String(item.vod_id || '')}
-                            source={currentSource}
-                            source_name={currentSourceName}
-                            title={item.vod_name || '未命名资源'}
-                            poster={item.vod_pic || ''}
-                            year={item.vod_year || ''}
-                            from='search'
-                          />
-                        </div>
-                      ))}
-                    </div>
+                    <VirtualizedVideoGrid
+                      mode='always'
+                      data={categoryItems}
+                      virtualizationThreshold={140}
+                      overscan={2000}
+                      onEndReached={handleLoadMore}
+                      hasMore={hasMoreCategoryItems}
+                      isLoadingMore={
+                        isLoadingCategoryItems || isLoadingMoreCategoryItems
+                      }
+                      className='grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'
+                      itemKey={(item) =>
+                        String(
+                          item.vod_id ||
+                            `${item.vod_name || 'item'}-${item.vod_year || ''}-${item.vod_pic || ''}`,
+                        )
+                      }
+                      renderItem={(item) => (
+                        <VideoCard
+                          id={String(item.vod_id || '')}
+                          source={currentSource}
+                          source_name={currentSourceName}
+                          title={item.vod_name || 'Untitled'}
+                          poster={item.vod_pic || ''}
+                          year={item.vod_year || ''}
+                          from='search'
+                        />
+                      )}
+                    />
 
                     {(hasMoreCategoryItems || isLoadingMoreCategoryItems) && (
-                      <div
-                        ref={loadMoreAnchorRef}
-                        className='mt-8 flex items-center justify-center'
-                      >
+                      <div className='mt-8 flex items-center justify-center'>
                         {isLoadingMoreCategoryItems ? (
                           <div className='inline-flex items-center gap-2 rounded-xl border border-slate-600/70 bg-slate-800/45 px-4 py-2 text-sm text-slate-300'>
                             <Loader2 className='h-4 w-4 animate-spin' />

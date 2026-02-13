@@ -244,3 +244,54 @@ export function cleanHtmlTags(text: string): string {
   // 使用 he 库解码 HTML 实体
   return he.decode(cleanedText);
 }
+
+type GridImageOptions = {
+  width?: number;
+  height?: number;
+  quality?: number;
+};
+
+/**
+ * Build a lightweight poster URL for dense card grids.
+ * External URLs are routed through wsrv.nl with bounded dimensions/quality.
+ */
+export function optimizeGridImageUrl(
+  originalUrl: string,
+  options: GridImageOptions = {},
+): string {
+  if (!originalUrl) return originalUrl;
+  if (
+    originalUrl.startsWith('data:') ||
+    originalUrl.startsWith('blob:') ||
+    originalUrl.startsWith('/')
+  ) {
+    return originalUrl;
+  }
+
+  const width = Math.max(120, Math.round(options.width ?? 320));
+  const height = Math.max(180, Math.round(options.height ?? 480));
+  const quality = Math.min(85, Math.max(35, Math.round(options.quality ?? 66)));
+
+  try {
+    const parsed = new URL(originalUrl);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return originalUrl;
+    }
+
+    if (parsed.hostname === 'wsrv.nl') {
+      parsed.searchParams.set('w', String(width));
+      parsed.searchParams.set('h', String(height));
+      parsed.searchParams.set('fit', 'cover');
+      parsed.searchParams.set('q', String(quality));
+      parsed.searchParams.set('output', 'webp');
+      parsed.searchParams.set('we', '');
+      return parsed.toString();
+    }
+
+    return `https://wsrv.nl/?url=${encodeURIComponent(
+      parsed.toString(),
+    )}&w=${width}&h=${height}&fit=cover&q=${quality}&output=webp&we`;
+  } catch {
+    return originalUrl;
+  }
+}
