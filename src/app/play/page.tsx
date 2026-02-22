@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, no-console, @next/next/no-img-element */
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, no-console */
 
 'use client';
 
@@ -26,7 +26,7 @@ import {
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
 import { generateCacheKey, globalCache } from '@/lib/unified-cache';
-import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
+import { getVideoResolutionFromM3u8 } from '@/lib/utils';
 import { isIOSPlatform, useCast } from '@/hooks/useCast';
 import { type DanmuItem, useDanmu } from '@/hooks/useDanmu';
 import { useDoubanInfo } from '@/hooks/useDoubanInfo';
@@ -36,6 +36,7 @@ import type {
   DanmuManualSelection,
 } from '@/components/DanmuManualMatchModal';
 import EpisodeSelector from '@/components/EpisodeSelector';
+import ExternalImage from '@/components/ExternalImage';
 import { MovieMetaInfo } from '@/components/MovieMetaInfo';
 import { MovieRecommends } from '@/components/MovieRecommends';
 import { MovieReviews } from '@/components/MovieReviews';
@@ -68,6 +69,137 @@ interface WakeLockSentinel {
   release(): Promise<void>;
   addEventListener(type: 'release', listener: () => void): void;
   removeEventListener(type: 'release', listener: () => void): void;
+}
+
+// 弹幕播放器偏好设置持久化
+const DANMUKU_SETTINGS_KEY = 'decotv_danmuku_settings';
+type DanmukuMode = 0 | 1 | 2;
+type DanmukuMarginValue = number | `${number}%`;
+
+interface DanmukuSettings {
+  speed: number;
+  opacity: number;
+  fontSize: number;
+  margin: [DanmukuMarginValue, DanmukuMarginValue];
+  modes: DanmukuMode[];
+  antiOverlap: boolean;
+  visible: boolean;
+}
+
+const DEFAULT_DANMUKU_SETTINGS: DanmukuSettings = {
+  speed: 5,
+  opacity: 1,
+  fontSize: 25,
+  margin: [10, '25%'],
+  modes: [0, 1, 2],
+  antiOverlap: true,
+  visible: true,
+};
+
+function sanitizeDanmukuMode(value: unknown): DanmukuMode[] {
+  if (!Array.isArray(value)) {
+    return [...DEFAULT_DANMUKU_SETTINGS.modes];
+  }
+
+  const dedup = new Set<DanmukuMode>();
+  for (const item of value) {
+    if (item === 0 || item === 1 || item === 2) {
+      dedup.add(item);
+    }
+  }
+
+  return dedup.size > 0
+    ? Array.from(dedup)
+    : [...DEFAULT_DANMUKU_SETTINGS.modes];
+}
+
+function sanitizeDanmukuMarginValue(
+  value: unknown,
+  fallback: DanmukuMarginValue,
+): DanmukuMarginValue {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^-?\d+(\.\d+)?%$/.test(trimmed)) {
+      return trimmed as `${number}%`;
+    }
+  }
+
+  return fallback;
+}
+
+function sanitizeDanmukuSettings(raw: unknown): DanmukuSettings {
+  const payload =
+    raw && typeof raw === 'object' ? (raw as Partial<DanmukuSettings>) : {};
+
+  const marginTop = sanitizeDanmukuMarginValue(
+    payload.margin?.[0],
+    DEFAULT_DANMUKU_SETTINGS.margin[0],
+  );
+  const marginBottom = sanitizeDanmukuMarginValue(
+    payload.margin?.[1],
+    DEFAULT_DANMUKU_SETTINGS.margin[1],
+  );
+
+  return {
+    speed:
+      typeof payload.speed === 'number' && Number.isFinite(payload.speed)
+        ? payload.speed
+        : DEFAULT_DANMUKU_SETTINGS.speed,
+    opacity:
+      typeof payload.opacity === 'number' && Number.isFinite(payload.opacity)
+        ? payload.opacity
+        : DEFAULT_DANMUKU_SETTINGS.opacity,
+    fontSize:
+      typeof payload.fontSize === 'number' && Number.isFinite(payload.fontSize)
+        ? payload.fontSize
+        : DEFAULT_DANMUKU_SETTINGS.fontSize,
+    margin: [marginTop, marginBottom],
+    modes: sanitizeDanmukuMode(payload.modes),
+    antiOverlap:
+      typeof payload.antiOverlap === 'boolean'
+        ? payload.antiOverlap
+        : DEFAULT_DANMUKU_SETTINGS.antiOverlap,
+    visible:
+      typeof payload.visible === 'boolean'
+        ? payload.visible
+        : DEFAULT_DANMUKU_SETTINGS.visible,
+  };
+}
+
+/**
+ * 从 localStorage 读取弹幕播放器偏好
+ * @returns 合并默认值后的弹幕设置
+ */
+function loadDanmukuSettings(): DanmukuSettings {
+  try {
+    const saved = localStorage.getItem(DANMUKU_SETTINGS_KEY);
+    if (saved) {
+      return sanitizeDanmukuSettings(JSON.parse(saved));
+    }
+  } catch {
+    // NOTE: SSR 或 localStorage 不可用时静默回退
+  }
+  return { ...DEFAULT_DANMUKU_SETTINGS };
+}
+
+/**
+ * 将弹幕播放器偏好写入 localStorage
+ * @param settings 要持久化的设置（可部分更新）
+ */
+function saveDanmukuSettings(settings: Partial<DanmukuSettings>) {
+  try {
+    const current = loadDanmukuSettings();
+    localStorage.setItem(
+      DANMUKU_SETTINGS_KEY,
+      JSON.stringify(sanitizeDanmukuSettings({ ...current, ...settings })),
+    );
+  } catch {
+    // NOTE: localStorage 不可用时静默忽略
+  }
 }
 
 function PlayPageClient() {
@@ -2051,24 +2183,54 @@ function PlayPageClient() {
         ],
         // 弹幕插件 - 只保留原生蓝色设置与发弹幕 UI
         plugins: [
-          artplayerPluginDanmuku({
-            danmuku: [], // 初始为空，后续通过 load() 加载
-            speed: 5,
-            opacity: 1,
-            fontSize: 25,
-            color: '#FFFFFF',
-            mode: 0,
-            margin: [10, '25%'],
-            antiOverlap: true,
-            synchronousPlayback: false,
-            lockTime: 5,
-            maxLength: 200,
-            theme: 'dark',
-            heatmap: false,
-            visible: true,
-            emitter: true,
-          }),
+          // NOTE: 从 localStorage 读取用户上次的弹幕偏好设置
+          artplayerPluginDanmuku(
+            (() => {
+              const savedSettings = loadDanmukuSettings();
+              return {
+                danmuku: [], // 初始为空，后续通过 load() 加载
+                speed: savedSettings.speed,
+                opacity: savedSettings.opacity,
+                fontSize: savedSettings.fontSize,
+                color: '#FFFFFF',
+                mode: 0,
+                margin: savedSettings.margin,
+                modes: savedSettings.modes,
+                antiOverlap: savedSettings.antiOverlap,
+                synchronousPlayback: false,
+                lockTime: 5,
+                maxLength: 200,
+                theme: 'dark',
+                heatmap: false,
+                visible: savedSettings.visible,
+                emitter: true,
+              };
+            })(),
+          ),
         ],
+      });
+
+      // 监听弹幕设置变更事件，将用户偏好持久化到 localStorage
+      artPlayerRef.current.on(
+        'artplayerPluginDanmuku:config' as any,
+        (nextOption: Partial<DanmukuSettings> | null | undefined) => {
+          if (!nextOption || typeof nextOption !== 'object') return;
+          saveDanmukuSettings({
+            speed: nextOption.speed,
+            opacity: nextOption.opacity,
+            fontSize: nextOption.fontSize,
+            margin: nextOption.margin,
+            modes: nextOption.modes,
+            antiOverlap: nextOption.antiOverlap,
+            visible: nextOption.visible,
+          });
+        },
+      );
+      artPlayerRef.current.on('artplayerPluginDanmuku:show' as any, () => {
+        saveDanmukuSettings({ visible: true });
+      });
+      artPlayerRef.current.on('artplayerPluginDanmuku:hide' as any, () => {
+        saveDanmukuSettings({ visible: false });
       });
 
       // 播放器创建完成后，尝试立即注入当前已获取的弹幕
@@ -2883,10 +3045,12 @@ function PlayPageClient() {
               <div className='relative bg-gray-300 dark:bg-gray-700 aspect-2/3 flex items-center justify-center rounded-xl overflow-hidden'>
                 {videoCover ? (
                   <>
-                    <img
-                      src={processImageUrl(videoCover)}
+                    <ExternalImage
+                      src={videoCover}
                       alt={videoTitle}
-                      className='w-full h-full object-cover'
+                      fill
+                      className='object-cover'
+                      sizes='(max-width: 768px) 100vw, 280px'
                     />
 
                     {/* 豆瓣链接按钮 */}

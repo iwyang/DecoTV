@@ -144,11 +144,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
         ? 'movie'
         : 'tv'
       : type;
-    const posterQuality = useMemo(() => {
-      if (from === 'douban') return 58;
-      if (from === 'search') return 62;
-      return 70;
-    }, [from]);
 
     const posterFetchPriority = useMemo(() => {
       if (from === 'douban' || from === 'search') return 'auto' as const;
@@ -687,8 +682,6 @@ const VideoCard = forwardRef<VideoCardHandle, VideoCardProps>(
               fetchPriority={posterFetchPriority}
               decoding='async'
               sizes='(max-width: 640px) 31vw, (max-width: 1024px) 18vw, 12vw'
-              quality={posterQuality}
-              unoptimized={!(from === 'douban' || from === 'search')}
               placeholder={from === 'douban' ? 'empty' : 'blur'}
               blurDataURL={POSTER_BLUR_DATA_URL}
               onLoad={() => setIsLoading(true)}
