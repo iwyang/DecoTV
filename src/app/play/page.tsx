@@ -73,6 +73,7 @@ interface WakeLockSentinel {
 
 // 弹幕播放器偏好设置持久化
 const DANMUKU_SETTINGS_KEY = 'decotv_danmuku_settings';
+const PLAYER_PLAYBACK_RATE_KEY = 'decotv_player_playback_rate';
 type DanmukuMode = 0 | 1 | 2;
 type DanmukuMarginValue = number | `${number}%`;
 
@@ -95,6 +96,32 @@ const DEFAULT_DANMUKU_SETTINGS: DanmukuSettings = {
   antiOverlap: true,
   visible: true,
 };
+
+function sanitizePlaybackRate(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 1.0;
+  }
+
+  // 与 Artplayer 可选倍速保持一致，避免写入异常值
+  const allowedRates = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
+  return allowedRates.includes(value) ? value : 1.0;
+}
+
+function loadPlaybackRate(): number {
+  if (typeof window === 'undefined') {
+    return 1.0;
+  }
+
+  try {
+    const raw = localStorage.getItem(PLAYER_PLAYBACK_RATE_KEY);
+    if (!raw) {
+      return 1.0;
+    }
+    return sanitizePlaybackRate(Number(raw));
+  } catch {
+    return 1.0;
+  }
+}
 
 function sanitizeDanmukuMode(value: unknown): DanmukuMode[] {
   if (!Array.isArray(value)) {
@@ -226,10 +253,25 @@ function PlayPageClient() {
     enable: boolean;
     intro_time: number;
     outro_time: number;
+    preset_id?: string;
+    preset_name?: string;
+    preset_category?:
+      | '通用'
+      | '动漫'
+      | '欧美剧'
+      | '日剧'
+      | '韩剧'
+      | '综艺'
+      | '纪录片';
+    preset_pinned?: boolean;
   }>({
     enable: false,
     intro_time: 0,
     outro_time: 0,
+    preset_id: undefined,
+    preset_name: undefined,
+    preset_category: undefined,
+    preset_pinned: undefined,
   });
   const skipConfigRef = useRef(skipConfig);
   useEffect(() => {
@@ -352,6 +394,10 @@ function PlayPageClient() {
   const lastVolumeRef = useRef<number>(0.7);
   // 上次使用的播放速率，默认 1.0
   const lastPlaybackRateRef = useRef<number>(1.0);
+
+  useEffect(() => {
+    lastPlaybackRateRef.current = loadPlaybackRate();
+  }, []);
 
   // 换源相关状态
   const [availableSources, setAvailableSources] = useState<SearchResult[]>([]);
@@ -1388,6 +1434,17 @@ function PlayPageClient() {
     enable: boolean;
     intro_time: number;
     outro_time: number;
+    preset_id?: string;
+    preset_name?: string;
+    preset_category?:
+      | '通用'
+      | '动漫'
+      | '欧美剧'
+      | '日剧'
+      | '韩剧'
+      | '综艺'
+      | '纪录片';
+    preset_pinned?: boolean;
   }) => {
     if (!currentSourceRef.current || !currentIdRef.current) return;
 
@@ -2586,7 +2643,17 @@ function PlayPageClient() {
         lastVolumeRef.current = artPlayerRef.current.volume;
       });
       artPlayerRef.current.on('video:ratechange', () => {
-        lastPlaybackRateRef.current = artPlayerRef.current.playbackRate;
+        lastPlaybackRateRef.current = sanitizePlaybackRate(
+          artPlayerRef.current.playbackRate,
+        );
+        try {
+          localStorage.setItem(
+            PLAYER_PLAYBACK_RATE_KEY,
+            String(lastPlaybackRateRef.current),
+          );
+        } catch {
+          // ignore
+        }
       });
 
       // 监听视频可播放事件，这时恢复播放进度更可靠
@@ -2616,8 +2683,7 @@ function PlayPageClient() {
           if (
             Math.abs(
               artPlayerRef.current.playbackRate - lastPlaybackRateRef.current,
-            ) > 0.01 &&
-            isWebkit
+            ) > 0.01
           ) {
             artPlayerRef.current.playbackRate = lastPlaybackRateRef.current;
           }
@@ -2653,7 +2719,7 @@ function PlayPageClient() {
             skipConfigRef.current.intro_time,
           );
           artPlayerRef.current.currentTime = skipConfigRef.current.intro_time;
-          artPlayerRef.current.notice.show = `✨ 已跳过片头，跳到 ${formatTime(
+          artPlayerRef.current.notice.show = `已跳过片头，跳到 ${formatTime(
             skipConfigRef.current.intro_time,
           )}`;
         }
@@ -2670,12 +2736,12 @@ function PlayPageClient() {
             currentEpisodeIndexRef.current <
             (detailRef.current?.episodes?.length || 1) - 1
           ) {
-            artPlayerRef.current.notice.show = `⏭️ 已跳过片尾，自动播放下一集`;
+            artPlayerRef.current.notice.show = `已跳过片尾，自动播放下一集`;
             setTimeout(() => {
               handleNextEpisode();
             }, 500);
           } else {
-            artPlayerRef.current.notice.show = `✅ 已跳过片尾（已是最后一集）`;
+            artPlayerRef.current.notice.show = `已跳过片尾（已是最后一集）`;
             artPlayerRef.current.pause();
           }
         }
@@ -2947,8 +3013,34 @@ function PlayPageClient() {
               />
             </svg>
             <span>{skipConfig.enable ? '已跳过' : '跳过'}</span>
+            {skipConfig.enable && skipConfig.preset_name && (
+              <span className='max-w-24 truncate'>
+                · {skipConfig.preset_name}
+              </span>
+            )}
           </button>
         </div>
+
+        {skipConfig.enable && skipConfig.preset_name && (
+          <div className='flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300'>
+            <span className='px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800'>
+              当前预设
+            </span>
+            <span className='font-medium truncate max-w-40'>
+              {skipConfig.preset_name}
+            </span>
+            {skipConfig.preset_category && (
+              <span className='px-2 py-1 rounded-md border border-gray-300 dark:border-gray-600'>
+                {skipConfig.preset_category}
+              </span>
+            )}
+            {skipConfig.preset_pinned && (
+              <span className='px-2 py-1 rounded-md border border-amber-300 text-amber-700 dark:border-amber-600 dark:text-amber-300'>
+                置顶
+              </span>
+            )}
+          </div>
+        )}
         {/* 第二行：播放器和选集 */}
         <div className='space-y-2'>
           {/* 折叠控制和跳过设置 - 仅在 lg 及以上屏幕显示 */}
@@ -2977,7 +3069,11 @@ function PlayPageClient() {
                 />
               </svg>
               <span className='text-sm font-medium'>
-                {skipConfig.enable ? '✨ 跳过已启用' : '⚙️ 跳过设置'}
+                {skipConfig.enable
+                  ? skipConfig.preset_name
+                    ? `${skipConfig.preset_name}`
+                    : '跳过已启用'
+                  : '跳过设置'}
               </span>
               {skipConfig.enable && (
                 <div className='absolute -top-1 -right-1 w-3 h-3 bg-green-400 rounded-full animate-pulse'></div>
@@ -3431,6 +3527,8 @@ function PlayPageClient() {
           onChange={handleSkipConfigChange}
           videoDuration={artPlayerRef.current?.duration || 0}
           currentTime={artPlayerRef.current?.currentTime || 0}
+          videoTitle={videoTitle}
+          videoTypeName={detail?.type_name || ''}
         />
       )}
 
