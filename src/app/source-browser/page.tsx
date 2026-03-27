@@ -159,7 +159,7 @@ function SourceBrowserPageClient() {
 
   return (
     <PageLayout activePath='/source-browser'>
-      <div className='px-4 sm:px-10 py-4 sm:py-8'>
+      <div className='px-4 py-4 sm:px-10 sm:py-8'>
         <div className='mx-auto w-full max-w-6xl space-y-6'>
           <section className='rounded-3xl border border-emerald-400/20 bg-linear-to-r from-slate-900/92 via-slate-900/86 to-emerald-950/70 p-5 shadow-[0_10px_32px_-24px_rgba(16,185,129,0.55)] sm:p-7'>
             <div className='flex flex-wrap items-start justify-between gap-4'>
@@ -172,7 +172,7 @@ function SourceBrowserPageClient() {
                     源浏览器
                   </h1>
                   <p className='text-sm text-slate-300/90'>
-                    统一管理数据源，一次选择，全站联动。
+                    统一浏览资源站分类内容，在当前页面快速切换来源与分类。
                   </p>
                 </div>
               </div>
@@ -187,7 +187,7 @@ function SourceBrowserPageClient() {
                 <input
                   value={keyword}
                   onChange={(event) => setKeyword(event.target.value)}
-                  placeholder='按源名称/标识筛选...'
+                  placeholder='按源名称 / 标识筛选...'
                   className='h-10 w-full rounded-xl border border-slate-600/60 bg-slate-900/40 pl-9 pr-3 text-sm text-slate-100 outline-none transition-colors focus:border-emerald-400/60'
                 />
               </label>
@@ -208,9 +208,9 @@ function SourceBrowserPageClient() {
               <h2 className='text-sm font-semibold text-slate-200'>
                 选择资源站
               </h2>
-              {isLoadingSources && (
+              {isLoadingSources ? (
                 <span className='text-xs text-slate-400'>加载中...</span>
-              )}
+              ) : null}
             </div>
 
             <div className='flex flex-wrap gap-2'>
@@ -253,16 +253,15 @@ function SourceBrowserPageClient() {
                   当前源分类浏览
                 </h3>
                 <p className='mt-1 text-xs text-slate-400'>
-                  自动读取当前源 class
-                  分类，点击后在当前页筛选，不跳转其他页面。
+                  自动读取当前源的分类，并在本页直接浏览，不跳转到其他页面。
                 </p>
               </div>
-              {currentSource !== 'auto' && selectedCategory && (
+              {currentSource !== 'auto' && selectedCategory ? (
                 <span className='inline-flex items-center gap-1 text-xs text-emerald-200'>
                   <CheckCircle2 className='h-4 w-4' />
-                  已选分类: {selectedCategory.type_name}
+                  已选分类：{selectedCategory.type_name}
                 </span>
-              )}
+              ) : null}
             </div>
 
             {currentSource === 'auto' ? (
@@ -303,17 +302,17 @@ function SourceBrowserPageClient() {
                   )}
                 </div>
 
-                {error && (
+                {error ? (
                   <div className='mt-3 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200'>
                     {error}
                   </div>
-                )}
+                ) : null}
 
-                {categoryError && (
+                {categoryError ? (
                   <div className='mt-3 rounded-xl border border-red-400/30 bg-red-500/10 p-3 text-sm text-red-200'>
                     {categoryError}
                   </div>
-                )}
+                ) : null}
 
                 {isLoadingCategoryItems ? (
                   <div className='mt-4 flex items-center justify-center gap-2 py-8 text-sm text-slate-300'>
@@ -322,7 +321,7 @@ function SourceBrowserPageClient() {
                   </div>
                 ) : categoryItems.length === 0 ? (
                   <div className='mt-4 rounded-xl border border-dashed border-slate-600/70 bg-slate-800/35 px-4 py-8 text-center text-sm text-slate-300'>
-                    该分类暂无可展示内容。
+                    该分类暂时没有可展示内容。
                   </div>
                 ) : (
                   <div className='mt-4'>
@@ -383,12 +382,12 @@ function SourceBrowserPageClient() {
                           '已到底部'
                         )}
                       </button>
-                      {hasReachedDomLimit && (
+                      {hasReachedDomLimit ? (
                         <p className='text-xs text-slate-400'>
                           已限制最大渲染数量（{MAX_GRID_ITEMS}
                           ），请切换分类继续浏览。
                         </p>
-                      )}
+                      ) : null}
                     </div>
                   </div>
                 )}

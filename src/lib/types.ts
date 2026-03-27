@@ -103,6 +103,17 @@ export interface SearchResult {
   desc?: string;
   type_name?: string;
   douban_id?: number;
+  tmdb_id?: number;
+  connector_id?: string;
+  connector_type?: 'openlist' | 'emby' | 'jellyfin' | 'xiaoya';
+  source_item_id?: string;
+  private_audio_streams?: Array<{
+    index: number;
+    display_title?: string;
+    language?: string;
+    codec?: string;
+    is_default: boolean;
+  }>;
 }
 
 // 豆瓣数据结构

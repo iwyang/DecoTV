@@ -18,6 +18,28 @@ export interface PanSouNode {
   updatedAt: number;
 }
 
+export interface PrivateLibraryConnector {
+  id: string;
+  name: string;
+  displayName?: string;
+  type: 'openlist' | 'emby' | 'jellyfin' | 'xiaoya';
+  enabled: boolean;
+  serverUrl: string;
+  token: string;
+  alistToken?: string;
+  username?: string;
+  password?: string;
+  rootPath?: string;
+  userId?: string;
+  libraryFilter?: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PrivateLibraryConfig {
+  connectors: PrivateLibraryConnector[];
+}
+
 export interface AdminConfig {
   ConfigSubscribtion: {
     URL: string;
@@ -34,6 +56,9 @@ export interface AdminConfig {
     DoubanProxy: string;
     DoubanImageProxyType: string;
     DoubanImageProxy: string;
+    TmdbProxyType?: 'direct' | 'forward' | 'reverse';
+    TmdbProxy?: string;
+    TmdbReverseProxy?: string;
     DisableYellowFilter: boolean;
     FluidSearch: boolean;
     LoginBackground?: string;
@@ -97,6 +122,13 @@ export interface AdminConfig {
     activeNodeId: string;
     nodes: PanSouNode[];
   };
+  TMDBConfig?: {
+    ApiKey: string;
+    ProxyType: 'direct' | 'forward' | 'reverse';
+    Proxy: string;
+    ReverseProxy: string;
+  };
+  PrivateLibraryConfig?: PrivateLibraryConfig;
 }
 
 export interface AdminConfigResult {
